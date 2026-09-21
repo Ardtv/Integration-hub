@@ -4,6 +4,7 @@ const IIKO_API_BASE = process.env.IIKO_API_BASE || 'https://api-ru.iiko.services
 const IIKO_API_KEY = process.env.IIKO_API_KEY;
 const IIKO_APP_ID = process.env.IIKO_APP_ID;
 const IIKO_CLIENT_SECRET = process.env.IIKO_CLIENT_SECRET;
+const IIKO_TIMEOUT = 15000;
 
 let cachedToken = null;
 let tokenExpiresAt = null;
@@ -25,8 +26,15 @@ class IikoClient {
                 appId: IIKO_APP_ID,
                 clientSecret: IIKO_CLIENT_SECRET
             },
-            { headers: { 'Content-Type': 'application/json' } }
+            {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: IIKO_TIMEOUT
+            }
         );
+
+        if (response.data.correlationId) {
+            console.log(`ℹ️ IIKO correlationId: ${response.data.correlationId}`);
+        }
 
         cachedToken = response.data.token;
         tokenExpiresAt = Date.now() + 60 * 60 * 1000;
@@ -38,7 +46,10 @@ class IikoClient {
         const response = await axios.post(
             `${IIKO_API_BASE}/api/1/organizations`,
             {},
-            { headers: { Authorization: `Bearer ${token}` } }
+            {
+                headers: { Authorization: `Bearer ${token}` },
+                timeout: IIKO_TIMEOUT
+            }
         );
         return response.data;
     }
