@@ -1,0 +1,106 @@
+# Архитектура интеграции amoCRM → Integration Hub → БД
+
+## Общая схема
+┌─────────┐ webhook ┌──────────────┐ POST /api/events ┌───────┐ worker ┌────────────┐
+│ amoCRM │ ─────────▶ │amo-connector │ ─────────────────▶ │ Hub │ ───────▶ │ PostgreSQL │
+└─────────┘ │ :3002 │ X-Api-Token │ :3001 │ │instinct_db │
+└──────────────┘ └───────┘ └────────────┘
+
+
+## Компоненты
+
+### amo-connector (порт 3002)
+**Файл:** `connectors/amo/webhook-server.js`
+
+**Задачи:**
+- Принимает вебхуки от amoCRM на `POST /webhook/amo`
+- Проверяет `X-Webhook-Secret`
+- Извлекает данные заказа (`extractOrder`)
+- Определяет тип события (`detectEvents`)
+- Отправляет в hub с `X-Api-Token`
+- Retry 3 раза при недоступности hub
+
+**Обрабатываемые события:**
+| amoCRM | Hub eventType |
+|--------|---------------|
+| `leads.add` | `deal.created` |
+| `leads.update` | `deal.updated` |
+| `leads.status` | `deal.status_updated` |
+
+### Hub (порт 3001)
+**Файл:** `src/index.ts`
+
+**Компоненты:**
+- **API** (`src/api/events.controller.ts`) — принимает `POST /api/events`
+- **Очередь** (`src/repositories/queue.repository.ts`) — `integration_queue`
+- **Worker** (`src/queue/worker.ts`) — обрабатывает события
+- **Event Handler** (`src/services/event-handler.service.ts`) — маршрутизация
+- **Order Service** (`src/services/order.service.ts`) — бизнес-логика
+
+**Endpoints:**
+- `POST /api/events` — приём событий
+- `GET /api/stats` — статистика
+- `GET /api/events` — pending events
+- `GET /api/dead` — dead-letter queue
+- `GET /health` — healthcheck
+
+### PostgreSQL (instinct_db)
+**Основные таблицы:**
+
+| Таблица | Назначение |
+|---------|-----------|
+| `orders` | Заказы |
+| `users` | Клиенты (уникальны по телефону) |
+| `integration_queue` | Очередь событий |
+| `external_id_mapping` | Связи `amoCRM ID ↔ orders.id` |
+| `integration_logs` | Логи операций |
+
+## Поток данных
+
+1. **amoCRM** шлёт вебхук → `POST /webhook/amo`
+2. **amo-connector**:
+   - Проверяет `X-Webhook-Secret`
+   - `detectEvents()` — определяет тип
+   - `extractOrder()` — извлекает данные
+   - `HubClient.sendWithRetry()` — отправляет в hub
+3. **Hub**:
+   - `POST /api/events` — принимает, кладёт в `integration_queue`
+4. **Worker** (каждые 5 сек):
+   - `getPending()` — берёт события
+   - `eventHandler.handle()` — обрабатывает
+   - `markProcessed()` / `markFailed()` / `markDead()`
+5. **OrderService**:
+   - `findByExternalId()` — ищет заказ
+   - `create()` / `update()` — создаёт/обновляет
+   - `external_id_mapping` — сохраняет связь
+
+## Обработка ошибок
+
+| Ситуация | Действие |
+|----------|----------|
+| Вебхук без секрета | 401 |
+| Невалидный payload | 400 |
+| Hub недоступен | Retry 3 раза (2, 4 сек) → 502 |
+| Ошибка обработки | `markFailed` → retry до 3 раз |
+| 3 неудачи | `markDead` → в `/api/dead` |
+| Дубликат `operation_key` | `duplicate`, не создаётся |
+
+## Идемпотентность
+
+- **Уровень 1:** `operation_key` UNIQUE в `integration_queue`
+- **Уровень 2:** `external_id_mapping` — `amoCRM ID ↔ orders.id`
+
+Повторный вебхук:
+- С тем же `operation_key` → `duplicate`
+- С другим `operation_key`, но тем же `external_id` → `update` (не дубль)
+
+## Переменные окружения
+
+| Переменная | Где | Назначение |
+|------------|-----|-----------|
+| `AMO_WEBHOOK_PORT` | amo-connector | Порт (3002) |
+| `HUB_URL` | amo-connector | URL hub |
+| `HUB_API_TOKEN` | amo-connector + hub | Токен авторизации |
+| `AMO_WEBHOOK_SECRET` | amo-connector | Секрет вебхука |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | hub | Подключение к БД |
+| `HUB_PORT` | hub | Порт (3001) |
