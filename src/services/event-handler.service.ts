@@ -22,8 +22,8 @@ case 'amo':
     await this.handleAmo(event);
     return;
 
-case 'kommo':
-    await this.handleAmo(event);
+case 'iiko':
+    console.warn({ eventType: event.event_type }, 'IIKO handler not implemented yet');
     return;
                 case 'cdek':
                     logger.info({ eventType: event.event_type }, 'CDEK event')
