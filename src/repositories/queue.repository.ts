@@ -153,7 +153,13 @@ export class QueueRepository {
             WHERE created_at > NOW() - INTERVAL '24 hours'
         `);
 
-        const queue: Record<string, number> = {};
+        const queue: Record<string, number> = {
+            pending: 0,
+            processing: 0,
+            processed: 0,
+            failed: 0,
+            dead: 0,
+        };
         for (const row of queueStats.rows) {
             queue[row.status] = Number(row.cnt);
         }
