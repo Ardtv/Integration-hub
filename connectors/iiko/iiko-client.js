@@ -1,24 +1,30 @@
 const axios = require('axios');
 
 const IIKO_API_BASE = process.env.IIKO_API_BASE || 'https://api-ru.iiko.services';
-const IIKO_API_LOGIN = process.env.IIKO_API_LOGIN;
+const IIKO_API_KEY = process.env.IIKO_API_KEY;
+const IIKO_APP_ID = process.env.IIKO_APP_ID;
+const IIKO_CLIENT_SECRET = process.env.IIKO_CLIENT_SECRET;
 
 let cachedToken = null;
 let tokenExpiresAt = null;
 
 class IikoClient {
     static async getToken() {
-        if (cachedToken && tokenExpiresAt && Date.now() < tokenExpiresAt) {
+        if (cachedToken && tokenExpiresAt && Date.now() < tokenExpiresAt - 60000) {
             return cachedToken;
         }
 
-        if (!IIKO_API_LOGIN) {
-            throw new Error('IIKO_API_LOGIN не задан в .env');
+        if (!IIKO_API_KEY || !IIKO_APP_ID || !IIKO_CLIENT_SECRET) {
+            throw new Error('IIKO_API_KEY, IIKO_APP_ID, IIKO_CLIENT_SECRET — не все заданы в .env');
         }
 
         const response = await axios.post(
-            `${IIKO_API_BASE}/api/1/access_token`,
-            { apiLogin: IIKO_API_LOGIN },
+            `${IIKO_API_BASE}/api/v2/access_token`,
+            {
+                apiKey: IIKO_API_KEY,
+                appId: IIKO_APP_ID,
+                clientSecret: IIKO_CLIENT_SECRET
+            },
             { headers: { 'Content-Type': 'application/json' } }
         );
 
