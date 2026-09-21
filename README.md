@@ -150,7 +150,7 @@ npm run build
 ### 5. Создать таблицы в БД
 
 ```bash
-sudo -u postgres psql -d instinct_db -f migrations/001_initial_schema.sql
+sudo -u postgres psql -d instinct_db -f migrations/001_integration_tables.sql
 ```
 
 ### 6. Запустить
@@ -278,7 +278,7 @@ integration-hub/
 │   ├── ARCHITECTURE.md           # Архитектура
 │   └── E2E.md                    # E2E инструкция
 ├── migrations/
-│   └── 001_initial_schema.sql    # Схема БД
+│   └── 001_integration_tables.sql    # Схема БД
 ├── ecosystem.config.js           # PM2 конфиг
 ├── package.json
 ├── tsconfig.json
