@@ -104,3 +104,30 @@
 | `AMO_WEBHOOK_SECRET` | amo-connector | Секрет вебхука |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | hub | Подключение к БД |
 | `HUB_PORT` | hub | Порт (3001) |
+
+## IIKO (в разработке)
+
+### Статус
+- ✅ API-клиент (`connectors/iiko/iiko-client.js`)
+- ✅ Тест подключения (`connectors/iiko/test-connection.js`)
+- ✅ Скрипт `scripts/test-iiko.sh`
+- ❌ Реальные доступы (ожидаем заказчика)
+- ❌ ТЗ по синхронизации
+
+### Авторизация v2
+Три параметра:
+- `apiKey` — iikoWeb → **Integrations → API Keys**
+- `appId` — UUID из https://public-api.iikoweb.ru/portal
+- `clientSecret` — оттуда же (показывается один раз)
+
+**Endpoint:** `POST /api/v2/access_token`
+
+**Токен:** живёт 1 час, refresh token нет.
+
+### Что дальше
+После получения доступов и ТЗ — реализация вебхуков и/или синхронизации.
+
+**Возможные компоненты:**
+- `connectors/iiko/webhook-server.js` — если IIKO шлёт вебхуки
+- `connectors/iiko/poller.js` — если нужно опрашивать API
+- `case 'iiko'` в `event-handler.service.ts` — уже добавлен (заглушка)
