@@ -127,7 +127,13 @@
 ### Что дальше
 После получения доступов и ТЗ — реализация вебхуков и/или синхронизации.
 
-**Возможные компоненты:**
-- `connectors/iiko/webhook-server.js` — если IIKO шлёт вебхуки
-- `connectors/iiko/poller.js` — если нужно опрашивать API
-- `case 'iiko'` в `event-handler.service.ts` — уже добавлен (заглушка)
+**Что уже есть:**
+- `connectors/iiko/iiko-client.js` — API-клиент (token, organizations)
+- `connectors/iiko/test-connection.js` — тест подключения
+- `connectors/iiko/README.md` — документация
+- `scripts/test-iiko.sh` — скрипт запуска
+- `case 'iiko'` в `event-handler.service.ts` — заглушка
+
+**Планируется (после ТЗ):**
+- вебхуки IIKO — если заказчик подтвердит push-модель
+- `poller.js` — если нужен опрос API
