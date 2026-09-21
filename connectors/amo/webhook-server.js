@@ -1,11 +1,76 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const HubClient = require('../shared/hub-client');
+const AmoClient = require('./amo-client');
 
 dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+
+const AMO_API_DOMAIN = process.env.AMO_API_DOMAIN;
+const AMO_API_TOKEN = process.env.AMO_API_TOKEN;
+const amoClient = (AMO_API_DOMAIN && AMO_API_TOKEN)
+    ? new AmoClient(AMO_API_TOKEN, AMO_API_DOMAIN)
+    : null;
+
+console.log(`🔧 AmoClient init: domain=${AMO_API_DOMAIN}, hasToken=${!!AMO_API_TOKEN}`);
+if (!amoClient) {
+    console.warn('⚠️ AMO_API_DOMAIN или AMO_API_TOKEN не заданы — дозапрос через API недоступен');
+}
+
+async function enrichFromApi(dealId) {
+    if (!amoClient) return null;
+
+    try {
+        const deal = await amoClient.getDeal(dealId);
+        const contactId = deal?._embedded?.contacts?.[0]?.id;
+        const contact = contactId ? await amoClient.getContact(contactId) : null;
+        const products = await amoClient.getDealProducts(dealId).catch(() => []);
+
+        return { deal, contact, products };
+    } catch (e) {
+        console.error(`❌ enrichFromApi(${dealId}) failed:`, e.message);
+        return null;
+    }
+}
+
+function mergeEnriched(order, enriched) {
+    const { contact, products } = enriched;
+
+    if (contact) {
+        const contactName = contact.name;
+        if (contactName && (order.customer_name === 'Unknown' || !order.customer_name)) {
+            order.customer_name = String(contactName);
+        }
+
+        const phone = getCustomField(contact, 'PHONE');
+        if (phone && (!order.customer_phone || order.customer_phone.startsWith('unknown_'))) {
+            order.customer_phone = normalizePhone(phone);
+        }
+
+        const email = getCustomField(contact, 'EMAIL');
+        if (email && !order.customer_email) {
+            order.customer_email = email;
+        }
+
+        const address = getCustomField(contact, 'ADDRESS');
+        if (address && !order.delivery_address) {
+            order.delivery_address = address;
+        }
+    }
+
+    if (Array.isArray(products) && products.length > 0 && order.items.length === 0) {
+        order.items = products.map(p => ({
+            external_id: p.id ? String(p.id) : null,
+            name: p.name || null,
+            quantity: Number(p.quantity) || 1,
+            price_minor: Math.round((Number(p.price) || 0) * 100)
+        }));
+    }
+
+    return order;
+}
 
 function getCustomField(entity, code) {
     if (!entity || !entity.custom_fields_values) return null;
