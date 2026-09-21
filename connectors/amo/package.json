@@ -1,7 +1,7 @@
 {
-  "name": "kommo-connector",
+  "name": "amo-connector",
   "version": "1.0.0",
-  "description": "Kommo connector for integration hub",
+  "description": "amo connector for integration hub",
   "main": "webhook-server.js",
   "scripts": {
     "start": "node webhook-server.js",

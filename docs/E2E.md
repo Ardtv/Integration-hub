@@ -1,4 +1,4 @@
-# E2E Test: Kommo → Order in DB
+# E2E Test: amoCRM → Order in DB
 
 ## Предусловия
 - Hub запущен: pm2 list | grep hub → online
@@ -8,7 +8,7 @@
 sudo -u postgres psql -d instinct_db -c "DELETE FROM integration_queue WHERE status IN ('failed','pending');"
 
 ## 2. Отправить событие
-curl -X POST http://localhost:3001/api/events -H "Content-Type: application/json" -d '{"eventType":"deal.created","source":"kommo","payload":{"external_id":"e2e_1","external_system":"kommo","order":{"customer_name":"E2E","customer_phone":"+79990001122","currency":"RUB","total_amount_minor":12345,"status":"new"}},"operationKey":"e2e_1"}'
+curl -X POST http://localhost:3001/api/events -H "Content-Type: application/json" -d '{"eventType":"deal.created","source":"amo","payload":{"external_id":"e2e_1","external_system":"amo","order":{"customer_name":"E2E","customer_phone":"+79990001122","currency":"RUB","total_amount_minor":12345,"status":"new"}},"operationKey":"e2e_1"}'
 
 ## 3. Проверить
 sleep 5
@@ -56,7 +56,7 @@ TOKEN=$(grep HUB_API_TOKEN ~/integration-hub/.env | cut -d= -f2)
 curl -s -X POST http://localhost:3001/api/events \
   -H "Content-Type: application/json" \
   -H "X-Api-Token: $TOKEN" \
-  -d '{"eventType":"deal.created","source":"kommo","payload":{"external_id":"e2e_status","external_system":"kommo","order":{"customer_name":"E2E Status","customer_phone":"+79990004444","currency":"RUB","total_amount_minor":10000,"status":"new"}},"operationKey":"e2e_status_v1"}'
+  -d '{"eventType":"deal.created","source":"amo","payload":{"external_id":"e2e_status","external_system":"amo","order":{"customer_name":"E2E Status","customer_phone":"+79990004444","currency":"RUB","total_amount_minor":10000,"status":"new"}},"operationKey":"e2e_status_v1"}'
 
 sleep 4
 
@@ -64,7 +64,7 @@ sleep 4
 curl -s -X POST http://localhost:3001/api/events \
   -H "Content-Type: application/json" \
   -H "X-Api-Token: $TOKEN" \
-  -d '{"eventType":"deal.updated","source":"kommo","payload":{"external_id":"e2e_status","external_system":"kommo","order":{"customer_name":"E2E Status","customer_phone":"+79990004444","currency":"RUB","total_amount_minor":77777,"status":"new"}},"operationKey":"e2e_status_v2"}'
+  -d '{"eventType":"deal.updated","source":"amo","payload":{"external_id":"e2e_status","external_system":"amo","order":{"customer_name":"E2E Status","customer_phone":"+79990004444","currency":"RUB","total_amount_minor":77777,"status":"new"}},"operationKey":"e2e_status_v2"}'
 
 sleep 4
 
@@ -72,7 +72,7 @@ sleep 4
 curl -s -X POST http://localhost:3001/api/events \
   -H "Content-Type: application/json" \
   -H "X-Api-Token: $TOKEN" \
-  -d '{"eventType":"deal.status_updated","source":"kommo","payload":{"external_id":"e2e_status","external_system":"kommo","order":{"customer_name":"E2E Status","customer_phone":"+79990004444","currency":"RUB","total_amount_minor":77777,"status":"paid"}},"operationKey":"e2e_status_v3"}'
+  -d '{"eventType":"deal.status_updated","source":"amo","payload":{"external_id":"e2e_status","external_system":"amo","order":{"customer_name":"E2E Status","customer_phone":"+79990004444","currency":"RUB","total_amount_minor":77777,"status":"paid"}},"operationKey":"e2e_status_v3"}'
 
 sleep 5
 
