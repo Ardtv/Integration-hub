@@ -22,7 +22,17 @@ IIKO использует **новую схему авторизации** — �
 | `apiKey` | iikoWeb → **Integrations → API Keys** | строка |
 | `appId` | https://public-api.iikoweb.ru/portal → создать приложение | UUID |
 | `clientSecret` | оттуда же (показывается **один раз**) | строка |
+## У IIKO два API
 
+| | iikoTransport (iikoCloud) | iikoWeb API (этот) |
+|---|---|---|
+| **Endpoint** | `/api/1/access_token` | `/api/v2/access_token` |
+| **Параметры** | `apiLogin` (1) | `apiKey`, `appId`, `clientSecret` (3) |
+| **Документация** | https://api-ru.iiko.services/docs | https://public-api.iikoweb.ru/portal |
+| **Для** | Заказы, доставка, меню, терминалы | (шире) |
+| **Не для** | Остатки склада, складские документы | — |
+
+**Мы используем iikoWeb API (v2)**, потому что хаб подключается через него.
 ### Endpoint
 
 ```
