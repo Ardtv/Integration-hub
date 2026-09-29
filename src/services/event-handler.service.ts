@@ -23,7 +23,7 @@ case 'amo':
     return;
 
 case 'iiko':
-    console.warn({ eventType: event.event_type }, 'IIKO handler not implemented yet');
+    await this.handleIiko(event);
     return;
                 case 'cdek':
                     logger.info({ eventType: event.event_type }, 'CDEK event')
@@ -83,5 +83,35 @@ external_system: payload.external_system || 'amo'
         });
 
         logger.info({ orderId: result.orderId, isNew: result.isNew }, 'Order processed')
+    }
+    private async handleIiko(event: QueueEvent): Promise<void> {
+        const payload = event.payload;
+
+        logger.info({ eventType: event.event_type }, 'IIKO event received');
+
+        switch (event.event_type) {
+            case 'iiko.order.created':
+                logger.info({ payload }, 'IIKO order created');
+                break;
+
+            case 'iiko.order.status_updated':
+                logger.info({ payload }, 'IIKO order status updated');
+                break;
+
+            case 'iiko.order.cancelled':
+                logger.info({ payload }, 'IIKO order cancelled');
+                break;
+
+            case 'iiko.stop_list.updated':
+                logger.info({ payload }, 'IIKO stop-list updated');
+                break;
+
+            case 'iiko.menu.synced':
+                logger.info({ payload }, 'IIKO menu synced');
+                break;
+
+            default:
+                logger.warn({ eventType: event.event_type }, 'Unknown IIKO event type');
+        }
     }
 }
