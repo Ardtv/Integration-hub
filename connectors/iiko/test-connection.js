@@ -1,5 +1,4 @@
-require('dotenv').config({ path: __dirname + '/../../.env' });
-const axios = require('axios');
+require('dotenv').config({ path: __dirname + '/../../.env', quiet: true });
 const IikoClient = require('./iiko-client');
 
 function isValidUuid(str) {
@@ -19,19 +18,11 @@ async function main() {
         console.log(`   ${v}: ${ok ? '✅' : '❌ не задан'}`);
         if (!ok) missing++;
     }
-
     if (process.env.IIKO_APP_ID && !isValidUuid(process.env.IIKO_APP_ID)) {
-        console.log('');
-        console.log('⚠️ IIKO_APP_ID не UUID. Ожидается формат:');
-        console.log('   550e8400-e29b-41d4-a716-446655440000');
+        console.log('⚠️ IIKO_APP_ID не UUID');
     }
-
     if (missing > 0) {
-        console.log('');
-        console.log('❌ Не все переменные заданы. Запросите у заказчика:');
-        console.log('   - IIKO_API_KEY (iikoWeb → Integrations → API Keys)');
-        console.log('   - IIKO_APP_ID (https://public-api.iikoweb.ru/portal)');
-        console.log('   - IIKO_CLIENT_SECRET (оттуда же)');
+        console.log('❌ Не все переменные заданы');
         process.exit(1);
     }
     console.log('');
@@ -42,24 +33,107 @@ async function main() {
         console.log('✅ Токен получен:', token.substring(0, 20) + '...');
     } catch (e) {
         console.error('❌ Ошибка:', e.message);
-        if (e.response?.data) {
-            console.error('   Body:', JSON.stringify(e.response.data, null, 2));
-        }
         process.exit(1);
     }
     console.log('');
 
     console.log('▶ Тест 2: Список организаций');
+    let orgId;
     try {
         const orgs = await IikoClient.getOrganizations();
-        console.log('✅ Организаций:', orgs.organizations?.length || 0);
-        for (const org of (orgs.organizations || [])) {
+        const list = orgs.organizations || [];
+        console.log('✅ Организаций:', list.length);
+        for (const org of list) {
             console.log(`   - ${org.name} (id: ${org.id})`);
+        }
+        orgId = list[0]?.id;
+    } catch (e) {
+        console.error('❌ Ошибка:', e.message);
+    }
+    console.log('');
+
+    if (!orgId) {
+        console.log('⚠️ Нет организаций');
+        return;
+    }
+
+    console.log('▶ Тест 3: Терминальные группы');
+    try {
+        const tg = await IikoClient.getTerminalGroups(orgId);
+        const groups = tg.terminalGroups || [];
+        let totalTerminals = 0;
+        for (const g of groups) totalTerminals += (g.items?.length || 0);
+
+        console.log(`✅ Терминальных групп: ${groups.length} | Терминалов: ${totalTerminals}`);
+
+        for (const g of groups) {
+            console.log(`   Группа orgId: ${g.organizationId}`);
+            for (const item of (g.items || [])) {
+                console.log(`     • ${item.name}`);
+                console.log(`       id: ${item.id}`);
+                console.log(`       posVersion: ${item.posVersion || '—'}`);
+                console.log(`       timezone: ${item.timeZone || '—'}`);
+            }
+        }
+        console.log(`   ℹ️ terminalGroupsInSleep: ${(tg.terminalGroupsInSleep || []).length}`);
+    } catch (e) {
+        console.error('❌ Ошибка:', e.message);
+    }
+    console.log('');
+
+    console.log('▶ Тест 4: Меню (номенклатура)');
+    try {
+        const menu = await IikoClient.getNomenclature(orgId);
+        const products = menu.products || [];
+        const groups = menu.groups || [];
+        const categories = menu.productCategories || [];
+
+        console.log(`✅ Товаров: ${products.length} | Групп: ${groups.length} | Категорий: ${categories.length}`);
+        console.log(`   revision: ${menu.revision || '—'}`);
+
+        if (products.length === 0) {
+            console.log('   ℹ️ Меню пустое — заказчик ещё не заполнил');
+        } else {
+            for (const p of products.slice(0, 5)) {
+                const price = p.sizePrices?.[0]?.price?.current || '—';
+                console.log(`   - ${p.name} (id: ${p.id}, price: ${price})`);
+            }
         }
     } catch (e) {
         console.error('❌ Ошибка:', e.message);
-        if (e.response?.data) {
-            console.error('   Body:', JSON.stringify(e.response.data, null, 2));
+    }
+    console.log('');
+
+    console.log('▶ Тест 5: Стоп-лист');
+    try {
+        const stop = await IikoClient.getStopList(orgId);
+        const sl = stop.stopLists || [];
+        console.log(`✅ Стоп-листов: ${sl.length}`);
+        for (const s of sl) {
+            console.log(`   - terminalGroupId: ${s.terminalGroupId || '—'}, позиций: ${s.items?.length || 0}`);
+        }
+    } catch (e) {
+        console.error('❌ Ошибка:', e.message);
+    }
+    console.log('');
+
+    console.log('▶ Тест 6: Остатки склада (если есть права)');
+    try {
+        const stock = await IikoClient.getStockBalance(orgId);
+        const items = stock.stockBalances || [];
+        console.log(`✅ Позиций на складе: ${items.length}`);
+        for (const item of items.slice(0, 5)) {
+            console.log(`   - ${item.name || '—'}: ${item.amount || '—'}`);
+        }
+        if (items.length === 0) {
+            console.log('   ℹ️ Склад пуст');
+        }
+    } catch (e) {
+        if (e.response?.status === 401) {
+            console.log('⚠️ Склад недоступен на текущем apiKey (401)');
+            console.log('   Это ограничение тарифа IIKO — не критично');
+        } else {
+            console.error('❌ Ошибка:', e.message);
         }
     }
     console.log('');
@@ -67,4 +141,7 @@ async function main() {
     console.log('════════ DONE ════════');
 }
 
-main();
+main().catch(e => {
+    console.error('❌ Fatal:', e);
+    process.exit(1);
+});
