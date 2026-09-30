@@ -6,7 +6,7 @@
 
 | Скрипт | Расписание | Направление |
 |--------|-----------|-------------|
-| `sync-menu.js` | каждые 15 мин | IIKO → `products` |
+| `sync-menu.js` | каждые 15 мин | IIKO → `external_products` |
 | `send-order.js` | по запросу | Hub → IIKO |
 | `sync-status.js` | каждые 5 мин | IIKO → `orders` |
 
