@@ -161,7 +161,30 @@ IIKO_TERMINAL_GROUP_ID=1f887843-83ee-71f9-019d-44005e1d0066
 - **Organization ID:** `084cf002-ef41-4d35-88e5-8026413c05eb`
 - **Terminal Group ID:** `1f887843-83ee-71f9-019d-44005e1d0066`
 - **posVersion:** `9.4.8049.0`
+## Синхронизация меню
 
+Товары из IIKO сохраняются в таблицу **`external_products`**:
+
+| Поле | Откуда |
+|------|--------|
+| `external_id` | IIKO `itemId` |
+| `name` | IIKO `name` |
+| `sku` | IIKO `sku` |
+| `category_name` | IIKO `itemCategories[].name` |
+| `price_rub` | IIKO `itemSizes[0].prices[0].price / 100` |
+
+**Важно:** цены в IIKO — **в копейках**, поэтому делим на 100.
+
+**Связь с нашими товарами** — через `external_id_mapping`:
+internal_table = 'external_products'
+external_system = 'iiko'
+
+### Синхронизация
+```bash
+node connectors/iiko/sync-menu.js
+Cron: каждые 15 минут
+
+Логи: /var/log/iiko-sync-menu.log
 ## Ограничения
 
 - **Меню** — пусто (ждём заказчика)
