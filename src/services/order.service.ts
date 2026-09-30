@@ -83,16 +83,16 @@ export class OrderService {
         }
 
         // 2. Находим или создаём пользователя
-        const userId = await this.findOrCreateUser(
-            data.customer_phone,
-            data.customer_name
-        );
+        const phone = this.normalizePhone(data.customer_phone);
+        const userId = phone
+            ? await this.findOrCreateUser(phone, data.customer_name)
+            : null;
 
         // 3. Создаём заказ
         const order = await this.orderRepo.create({
             user_id: userId,
             customer_name: data.customer_name,
-            customer_phone: data.customer_phone,
+            customer_phone: phone ?? "",
             customer_email: data.customer_email,
             delivery_address: data.delivery_address,
             currency: data.currency,
@@ -121,6 +121,14 @@ export class OrderService {
     async updateStatusOnly(orderId: number, status: string): Promise<void> {
         await this.orderRepo.updateStatus(orderId, status);
     }
+    // "+7 (999) 123-45-67" / "8 999 1234567" -> "79991234567"; мусор ("unknown_123", "") -> null
+    private normalizePhone(raw?: string): string | null {
+        if (!raw) return null;
+        let digits = raw.replace(/\D/g, "");
+        if (digits.length === 11 && digits.startsWith("8")) digits = "7" + digits.slice(1);
+        return digits.length >= 10 && digits.length <= 15 ? digits : null;
+    }
+
     private async findOrCreateUser(phone: string, name: string): Promise<number> {
         const existingUser = await this.pool.query(
             'SELECT id FROM users WHERE phone = $1 LIMIT 1',
