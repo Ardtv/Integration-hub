@@ -284,6 +284,33 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', service: 'amo-connector' });
 });
 
+app.post('/webhook/iiko', async (req, res) => {
+    const IIKO_SECRET = process.env.IIKO_WEBHOOK_SECRET;
+
+    if (IIKO_SECRET) {
+        const token = req.headers['x-webhook-token'] || req.query.token;
+        if (token !== IIKO_SECRET) {
+            console.warn(`🚫 IIKO Unauthorized webhook from ${req.ip}`);
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+    }
+
+    console.log('📨 Получен вебхук от IIKO:', JSON.stringify(req.body).slice(0, 2000));
+
+    try {
+        const result = await HubClient.sendWithRetry({
+            eventType: 'iiko.event',
+            source: 'iiko',
+            payload: req.body,
+            operationKey: `iiko_${Date.now()}_${Math.random().toString(36).slice(2)}`
+        });
+        res.status(200).json({ status: 'accepted', hub: result });
+    } catch (e) {
+        console.error('❌ Ошибка отправки в Hub:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const PORT = process.env.AMO_WEBHOOK_PORT || 3002;
 app.listen(PORT, () => {
     console.log(`🚀 AmoCRM коннектор запущен на порту ${PORT}`);

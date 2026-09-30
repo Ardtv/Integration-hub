@@ -31,12 +31,38 @@ async function syncMenu() {
     }
 
     try {
-        const menu = await IikoClient.getNomenclature(orgId);
-        const products = menu.products || [];
-        const groups = menu.groups || [];
+// Получаем список внешних меню
+const menuList = await IikoClient.getExternalMenus(orgId);
+const externalMenus = menuList.externalMenus || [];
 
-        console.log(`📦 Получено: товаров ${products.length}, групп ${groups.length}`);
+if (externalMenus.length === 0) {
+    console.log('ℹ️ Внешних меню нет');
+    return { synced: 0, created: 0, updated: 0 };
+}
 
+const externalMenu = externalMenus[0];
+console.log(`📋 Внешнее меню: "${externalMenu.name}" (id: ${externalMenu.id})`);
+
+// Получаем состав меню
+const menu = await IikoClient.getExternalMenuById(orgId, externalMenu.id);
+
+// Собираем товары из категорий
+const products = [];
+const groups = menu.itemCategories || [];
+
+for (const category of groups) {
+    for (const item of (category.items || [])) {
+        products.push({
+            id: item.itemId,
+            name: item.name,
+            sku: item.sku,
+            categoryName: category.name,
+            price: item.itemSizes?.[0]?.prices?.[0]?.price || 0
+        });
+    }
+}
+
+console.log(`📦 Найдено: товаров ${products.length}, групп ${groups.length}`);
         if (products.length === 0) {
             console.log('ℹ️ Меню пустое — нечего синхронизировать');
             return { synced: 0, created: 0, updated: 0 };
@@ -47,40 +73,40 @@ async function syncMenu() {
 
         for (const product of products) {
             try {
-                const mapping = await pool.query(
-                    `SELECT internal_id FROM external_id_mapping
-                     WHERE external_system = 'iiko'
-                       AND external_id = $1
-                       AND internal_table = 'products'`,
-                    [product.id]
-                );
+const mapping = await pool.query(
+    `SELECT internal_id FROM external_id_mapping
+     WHERE external_system = 'iiko'
+       AND external_id = $1
+       AND internal_table = 'external_products'`,
+    [product.id]
+);
+const price = product.price || 0;
+const name = product.name || 'Unknown';
+if (mapping.rows.length > 0) {
+    await pool.query(
+        `UPDATE external_products
+         SET name = $1, sku = $2, category_name = $3, price_rub = $4, updated_at = NOW()
+         WHERE external_system = 'iiko' AND external_id = $5`,
+[name, product.sku, product.categoryName, Math.round(price / 100), product.id]
+    );
+    updated++;
+} else {
+    const result = await pool.query(
+        `INSERT INTO external_products
+         (external_id, external_system, name, sku, category_name, price_rub, created_at, updated_at)
+         VALUES ($1, 'iiko', $2, $3, $4, $5, NOW(), NOW())
+         RETURNING id`,
+[product.id, name, product.sku, product.categoryName, Math.round(price / 100)]
+    );
 
-                const price = product.sizePrices?.[0]?.price?.current || 0;
-                const name = product.name || 'Unknown';
-
-                if (mapping.rows.length > 0) {
-                    await pool.query(
-                        `UPDATE products SET title = $1, price_minor = $2, updated_at = NOW()
-                         WHERE id = $3`,
-                        [name, Math.round(price * 100), mapping.rows[0].internal_id]
-                    );
-                    updated++;
-                } else {
-                    const result = await pool.query(
-                        `INSERT INTO products (title, price_minor, created_at, updated_at)
-                         VALUES ($1, $2, NOW(), NOW())
-                         RETURNING id`,
-                        [name, Math.round(price * 100)]
-                    );
-
-                    await pool.query(
-                        `INSERT INTO external_id_mapping
-                         (internal_table, internal_id, external_system, external_id, created_at, updated_at)
-                         VALUES ('products', $1, 'iiko', $2, NOW(), NOW())`,
-                        [result.rows[0].id, product.id]
-                    );
-                    created++;
-                }
+    await pool.query(
+        `INSERT INTO external_id_mapping
+         (internal_table, internal_id, external_system, external_id, created_at, updated_at)
+         VALUES ('external_products', $1, 'iiko', $2, NOW(), NOW())`,
+        [result.rows[0].id, product.id]
+    );
+    created++;
+}
             } catch (e) {
                 console.error(`❌ Ошибка для product ${product.id}:`, e.message);
             }

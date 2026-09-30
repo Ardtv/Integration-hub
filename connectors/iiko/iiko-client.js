@@ -150,6 +150,24 @@ class IikoClient {
             return { ok: false, error: e.message };
         }
     }
+    /**
+     * Список внешних меню
+     */
+    static async getExternalMenus(organizationId) {
+        return this._request('POST', '/api/2/menu', {
+            organizationId
+        });
+    }
+
+    /**
+     * Состав внешнего меню
+     */
+    static async getExternalMenuById(organizationIds, externalMenuId) {
+        return this._request('POST', '/api/2/menu/by_id', {
+            organizationIds: [organizationIds],
+            externalMenuId
+        });
+    }
 }
 
 module.exports = IikoClient;
