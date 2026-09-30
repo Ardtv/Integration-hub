@@ -234,11 +234,28 @@ app.post('/webhook/amo', verifyWebhookSecret, async (req, res) => {
             }
 
             const useFallback = type === 'deal.created';
-            const order = extractOrder(lead, useFallback);
+            let order = extractOrder(lead, useFallback);
             if (!order) {
                 console.warn(`⚠️ Не удалось извлечь заказ из lead ${lead.id}`);
                 failCount++;
                 continue;
+            }
+
+            // Дозапрос через API, если нет обязательных полей
+            const needsEnrich = useFallback && (
+                !order.customer_phone ||
+                order.customer_phone.startsWith('unknown_') ||
+                !order.customer_email ||
+                order.items.length === 0
+            );
+
+            if (needsEnrich && amoClient) {
+                console.log(`🔍 [${type}] Дозапрашиваю данные через API для lead ${lead.id}`);
+                const enriched = await enrichFromApi(lead.id);
+                if (enriched) {
+                    order = mergeEnriched(order, enriched);
+                    console.log(`✅ [${type}] Дозапрос успешен`);
+                }
             }
 
             console.log(`📦 [${type}] Извлечён заказ:`, JSON.stringify(order));
