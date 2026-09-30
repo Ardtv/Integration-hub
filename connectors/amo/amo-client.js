@@ -9,7 +9,7 @@ class AmoClient {
 
     async getDeal(dealId) {
         const response = await axios.get(
-            `${this.baseUrl}/leads/${dealId}`,
+            `${this.baseUrl}/leads/${dealId}?with=contacts`,
             { headers: { 'Authorization': `Bearer ${this.apiKey}` } }
         );
         return response.data;
