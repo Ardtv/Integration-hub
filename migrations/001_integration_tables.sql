@@ -46,3 +46,13 @@ CREATE INDEX IF NOT EXISTS idx_external_mapping
     ON external_id_mapping(external_system, external_id);
 CREATE INDEX IF NOT EXISTS idx_internal_mapping 
     ON external_id_mapping(internal_table, internal_id);
+
+-- IIKO order id
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS iiko_order_id VARCHAR(64);
+
+-- Расширение OrderStatus для IIKO
+ALTER TYPE "OrderStatus" ADD VALUE IF NOT EXISTS 'processing';
+ALTER TYPE "OrderStatus" ADD VALUE IF NOT EXISTS 'ready';
+ALTER TYPE "OrderStatus" ADD VALUE IF NOT EXISTS 'delivering';
+ALTER TYPE "OrderStatus" ADD VALUE IF NOT EXISTS 'delivered';
+ALTER TYPE "OrderStatus" ADD VALUE IF NOT EXISTS 'completed';
