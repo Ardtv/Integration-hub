@@ -105,14 +105,87 @@
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | hub | Подключение к БД |
 | `HUB_PORT` | hub | Порт (3001) |
 
-## IIKO (в разработке)
+## IIKO — интеграция
 
 ### Статус
-- ✅ API-клиент (`connectors/iiko/iiko-client.js`)
-- ✅ Тест подключения (`connectors/iiko/test-connection.js`)
-- ✅ Скрипт `scripts/test-iiko.sh`
-- ❌ Реальные доступы (ожидаем заказчика)
-- ❌ ТЗ по синхронизации
+
+| Компонент | Статус |
+|-----------|--------|
+| API-клиент (`iiko-client.js`) | ✅ Готов |
+| Авторизация v2 (apiKey+appId+clientSecret) | ✅ Работает |
+| Синхронизация меню (`sync-menu.js`) | ✅ Готов (ждёт меню) |
+| Отправка заказов (`send-order.js`) | ✅ Готов (ждёт меню) |
+| Синхронизация статусов (`sync-status.js`) | ✅ Готов (ждёт заказы) |
+| Cron-расписание | ✅ Настроено |
+| `handleIiko` в хабе | ✅ Готов |
+
+### Компоненты
+
+| Файл | Назначение |
+|------|-----------|
+| `connectors/iiko/iiko-client.js` | API-клиент (8 методов) |
+| `connectors/iiko/sync-menu.js` | Синхронизация меню → `products` (cron: каждые 15 мин) |
+| `connectors/iiko/send-order.js` | Отправка заказов в IIKO |
+| `connectors/iiko/sync-status.js` | Синхронизация статусов (cron: каждые 5 мин) |
+| `connectors/iiko/test-connection.js` | Тест подключения |
+| `connectors/iiko/README.md` | Документация |
+
+### Методы `iiko-client.js`
+
+- `getToken()` — авторизация
+- `getOrganizations()` — список организаций
+- `getTerminalGroups(orgId)` — терминалы
+- `getNomenclature(orgId)` — меню
+- `getStopList(orgId)` — стоп-лист
+- `createDeliveryOrder(orgId, terminalGroupId, order)` — создать заказ
+- `getOrderById(orgId, orderId)` — статус заказа
+- `getOrdersByDate(orgId, from, to)` — заказы за период
+- `getStockBalance(orgId)` — остатки (401, не доступно)
+
+### Cron
+15 * * * * — sync-menu.js
+5 * * * * — sync-status.js
+
+### Переменные
+
+```env
+IIKO_API_BASE=https://api-ru.iiko.services
+IIKO_API_KEY=...
+IIKO_APP_ID=...
+IIKO_CLIENT_SECRET=...
+IIKO_ORGANIZATION_ID=084cf002-ef41-4d35-88e5-8026413c05eb
+IIKO_TERMINAL_GROUP_ID=1f887843-83ee-71f9-019d-44005e1d0066
+###Организация
+
+    Название: Elite fungi
+
+    ID: 084cf002-ef41-4d35-88e5-8026413c05eb
+
+    Терминал: 1f887843-83ee-71f9-019d-44005e1d0066
+
+    posVersion: 9.4.8049.0
+
+###Ограничения
+
+    Меню — пусто (ждём заказчика)
+
+    Склад (/api/1/stock/balance) — 401, ограничение тарифа
+
+###События в хабе
+
+    iiko.order.created
+
+    iiko.order.status_updated
+
+    iiko.order.cancelled
+
+    iiko.stop_list.updated
+
+    iiko.menu.synced
+###Поток данных
+amoCRM/Hub → send-order.js → IIKO API (createDeliveryOrder)
+IIKO API → sync-status.js → orders (обновление статуса)
+IIKO API → sync-menu.js → products (синхронизация меню)
 
 ### Авторизация v2
 Три параметра:
