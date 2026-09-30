@@ -64,8 +64,7 @@ export class QueueRepository {
               AND (
                 processed_at IS NULL
                 OR processed_at < CURRENT_TIMESTAMP - (POWER(2, retry_count) * INTERVAL '1 minute')
-              )
-            ORDER BY priority DESC, created_at ASC
+              )            ORDER BY priority DESC, created_at ASC
             LIMIT $1
             FOR UPDATE SKIP LOCKED
         `, [limit]);
