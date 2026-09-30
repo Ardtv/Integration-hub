@@ -11,7 +11,14 @@
 | `sync-status.js` | каждые 5 мин | IIKO → `orders` |
 
 ## sync-menu.js
+### Цены
 
+Цены в IIKO приходят **в копейках** (например, `1500` = 15 ₽).
+
+В `external_products.price_rub` сохраняем **в рублях**:
+
+```javascript
+price_rub: Math.round(price / 100)
 **Что делает:**
 1. Получает меню из IIKO (`getNomenclature`)
 2. Для каждого товара:
