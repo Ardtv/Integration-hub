@@ -79,10 +79,36 @@ logger.warn({ eventType: event.event_type }, 'Amo event without order payload')
         const result = await this.orderService.createOrUpdateFromExternal({
             ...payload.order,
             external_id: payload.external_id,
-external_system: payload.external_system || 'amo'
+            external_system: payload.external_system || 'amo'
         });
 
-        logger.info({ orderId: result.orderId, isNew: result.isNew }, 'Order processed')
+        logger.info({ orderId: result.orderId, isNew: result.isNew }, 'Order processed');
+
+        // Отправляем в IIKO (только новый заказ)
+        if (result.isNew) {
+            await this.sendOrderToIiko(result.orderId);
+        }
+    }
+
+    private async sendOrderToIiko(orderId: number): Promise<void> {
+        try {
+            const { sendOrderToIiko } = require('../../connectors/iiko/send-order');
+            const order = await this.orderService.getOrderWithItems(orderId);
+
+            if (!order || !order.items || order.items.length === 0) {
+                logger.warn({ orderId }, 'Order has no items — skipping IIKO');
+                return;
+            }
+
+            const result = await sendOrderToIiko(order);
+
+            if (result.orderInfo?.id) {
+                await this.orderService.setIikoOrderId(orderId, result.orderInfo.id);
+                logger.info({ orderId, iikoOrderId: result.orderInfo.id }, 'Order sent to IIKO');
+            }
+        } catch (e: any) {
+            logger.error({ orderId, err: e.message }, 'Failed to send order to IIKO');
+        }
     }
     private async handleIiko(event: QueueEvent): Promise<void> {
         const payload = event.payload;

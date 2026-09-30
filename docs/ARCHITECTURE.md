@@ -210,3 +210,63 @@ IIKO API → sync-menu.js → products (синхронизация меню)
 **Планируется (после ТЗ):**
 - вебхуки IIKO — если заказчик подтвердит push-модель
 - `poller.js` — если нужен опрос API
+
+
+## external_products — товары из внешних систем
+
+### Назначение
+
+Товары из IIKO хранятся **отдельно** от `products` (товаров бота).
+
+**Почему отдельно:**
+- Не ломаем существующую структуру `products` + `product_translations`
+- Товары из IIKO — внешние, у них своя логика
+- Связь с нашими товарами — через `external_id_mapping`
+
+### Структура
+
+| Колонка | Тип | Назначение |
+|---------|-----|-----------|
+| `id` | SERIAL | PK |
+| `external_id` | VARCHAR(64) | ID в IIKO |
+| `external_system` | VARCHAR(32) | `iiko` |
+| `name` | VARCHAR(255) | Название |
+| `sku` | VARCHAR(64) | Артикул |
+| `category_name` | VARCHAR(255) | Категория |
+| `price_rub` | INTEGER | Цена в рублях |
+| `is_active` | BOOLEAN | Активен |
+| `created_at` | TIMESTAMP | — |
+| `updated_at` | TIMESTAMP | — |
+
+**Уникальность:** `(external_system, external_id)`.
+
+### Синхронизация
+
+**Скрипт:** `connectors/iiko/sync-menu.js`
+
+**Cron:** каждые 15 минут
+
+**Что делает:**
+1. Забирает внешнее меню из IIKO (`/api/2/menu/by_id`)
+2. Для каждого товара:
+   - Ищет в `external_id_mapping` (iiko itemId ↔ external_products.id)
+   - Если есть — обновляет
+   - Если нет — создаёт
+
+**Цены:** IIKO передаёт в копейках, делим на 100 (`Math.round(price / 100)`).
+
+### Mapping
+Связь `external_products.id` ↔ IIKO `itemId` хранится в `external_id_mapping`:
+
+- `internal_table` = `'external_products'`
+- `internal_system` = `'iiko'`
+- `internal_id` = `external_products.id`
+- `external_id` = IIKO `itemId`
+
+### Пример
+
+```sql
+SELECT id, name, sku, category_name, price_rub
+FROM external_products
+WHERE external_system = 'iiko'
+ORDER BY id DESC LIMIT 5;

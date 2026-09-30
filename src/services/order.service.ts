@@ -11,6 +11,36 @@ export class OrderService {
         private orderItemRepo: OrderItemRepository,
         private pool: Pool
     ) {}
+    async getOrderWithItems(orderId: number): Promise<any> {
+        const order = await this.orderRepo.getById(orderId);
+        if (!order) return null;
+
+        // Получаем items из external_order_items
+        const itemsResult = await this.pool.query(
+            `SELECT id, external_id, name, quantity, price_minor
+             FROM external_order_items WHERE order_id = $1`,
+            [orderId]
+        );
+
+        return {
+            id: order.id,
+            customer_phone: order.customer_phone,
+            customer_name: order.customer_name,
+            delivery_address: order.delivery_address,
+            comment: order.comment,
+            items: itemsResult.rows.map(item => ({
+                product_id: item.id,
+                quantity: item.quantity
+            }))
+        };
+    }
+
+    async setIikoOrderId(orderId: number, iikoOrderId: string): Promise<void> {
+        await this.pool.query(
+            `UPDATE orders SET iiko_order_id = $1, updated_at = NOW() WHERE id = $2`,
+            [iikoOrderId, orderId]
+        );
+    }
 
     async createOrUpdateFromExternal(data: {
         customer_name: string;
