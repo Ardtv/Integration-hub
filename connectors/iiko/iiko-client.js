@@ -136,10 +136,25 @@ class IikoClient {
         });
     }
 
-    static async getStockBalance(organizationId) {
-        return this._request('POST', '/api/1/stock/balance', {
-            organizationId
+    static async getStockBalance(organizationId, balanceAt = null) {
+        const date = balanceAt || new Date().toISOString();
+
+        return this._request('POST', '/api/inventory/v1/stock_balance/list', {
+            organizationId: organizationId,
+            balanceAt: date
         });
+    }
+
+    static async getWriteoffDocuments(organizationId, from, to) {
+        return this._request('POST', '/api/inventory/v1/writeoff_document/list', {
+            organizationIds: [organizationId],
+            from: from || null,
+            to: to || null
+        });
+    }
+
+    static async createWriteoffDocument(data) {
+        return this._request('POST', '/api/inventory/v1/writeoff_document/create', data);
     }
 
     static async ping() {
