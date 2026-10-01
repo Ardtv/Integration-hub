@@ -270,3 +270,23 @@ SELECT id, name, sku, category_name, price_rub
 FROM external_products
 WHERE external_system = 'iiko'
 ORDER BY id DESC LIMIT 5;
+
+
+## IIKO Inventory — склад
+
+### Эндпоинты
+
+| Эндпоинт | Метод | Что делает |
+|----------|-------|-----------|
+| `/api/inventory/v1/stock_balance/list` | POST | Остатки склада |
+| `/api/inventory/v1/writeoff_document/list` | POST | Список списаний |
+| `/api/inventory/v1/writeoff_document/create` | POST | Создать списание |
+
+### Остатки склада
+
+**Запрос:**
+```json
+{
+  "organizationId": "084cf002-...",
+  "balanceAt": "2026-10-01T12:44:08Z"
+}
