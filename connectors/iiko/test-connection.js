@@ -119,23 +119,34 @@ try {
     }
     console.log('');
 
-    console.log('▶ Тест 6: Остатки склада (если есть права)');
+    console.log('▶ Тест 6: Остатки склада');
     try {
         const stock = await IikoClient.getStockBalance(orgId);
-        const items = stock.stockBalances || [];
+        const items = stock.items || [];
         console.log(`✅ Позиций на складе: ${items.length}`);
+        console.log(`   balanceAt: ${stock.balanceAt}`);
+        console.log(`   generatedAt: ${stock.generatedAt}`);
+
+        // Считаем позиции с остатком > 0
+        const withStock = items.filter(i => i.quantity > 0);
+        const negative = items.filter(i => i.quantity < 0);
+        const zero = items.filter(i => i.quantity === 0);
+
+        console.log(`   С остатком > 0: ${withStock.length}`);
+        console.log(`   С остатком < 0: ${negative.length}`);
+        console.log(`   С остатком = 0: ${zero.length}`);
+
         for (const item of items.slice(0, 5)) {
-            console.log(`   - ${item.name || '—'}: ${item.amount || '—'}`);
-        }
-        if (items.length === 0) {
-            console.log('   ℹ️ Склад пуст');
+            console.log(`   - productId: ${item.productId} | qty: ${item.quantity}`);
         }
     } catch (e) {
         if (e.response?.status === 401) {
             console.log('⚠️ Склад недоступен на текущем apiKey (401)');
-            console.log('   Это ограничение тарифа IIKO — не критично');
         } else {
             console.error('❌ Ошибка:', e.message);
+            if (e.response) {
+                console.error('   Body:', JSON.stringify(e.response.data));
+            }
         }
     }
     console.log('');
