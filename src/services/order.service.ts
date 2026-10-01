@@ -84,9 +84,8 @@ export class OrderService {
 
         // 2. Находим или создаём пользователя
         const phone = this.normalizePhone(data.customer_phone);
-        const userId = phone
-            ? await this.findOrCreateUser(phone, data.customer_name)
-            : null;
+        const identifier = phone || `unknown_${data.external_id}`;
+        const userId = await this.findOrCreateUser(identifier, data.customer_name);
 
         // 3. Создаём заказ
         const order = await this.orderRepo.create({
@@ -129,18 +128,20 @@ export class OrderService {
         return digits.length >= 10 && digits.length <= 15 ? digits : null;
     }
 
-    private async findOrCreateUser(phone: string, name: string): Promise<number> {
-        const existingUser = await this.pool.query(
-            'SELECT id FROM users WHERE phone = $1 LIMIT 1',
-            [phone]
-        );
+    private async findOrCreateUser(identifier: string, name: string): Promise<number> {
+        if (!identifier.startsWith('unknown_')) {
+            const existingUser = await this.pool.query(
+                'SELECT id FROM users WHERE phone = $1 LIMIT 1',
+                [identifier]
+            );
 
-        if (existingUser.rows.length > 0) {
-            logger.info({ userId: existingUser.rows[0].id, phone }, 'Existing user found');
-            return existingUser.rows[0].id;
+            if (existingUser.rows.length > 0) {
+                logger.info({ userId: existingUser.rows[0].id, phone: identifier }, 'Existing user found');
+                return existingUser.rows[0].id;
+            }
         }
 
-        let pseudoTelegramId = -Math.abs(this.hashCode(phone));
+        let pseudoTelegramId = -Math.abs(this.hashCode(identifier));
 
         for (let attempt = 0; attempt < 5; attempt++) {
             const busy = await this.pool.query(
@@ -151,13 +152,15 @@ export class OrderService {
             pseudoTelegramId = pseudoTelegramId - 1;
         }
 
-        logger.info({ phone, name, pseudoTelegramId }, 'Creating user');
+        logger.info({ identifier, name, pseudoTelegramId }, 'Creating user');
+
+        const phoneValue = identifier.startsWith('unknown_') ? null : identifier;
 
         const newUser = await this.pool.query(
             `INSERT INTO users (telegram_id, phone, first_name, language, created_at, updated_at)
              VALUES ($1, $2, $3, 'ru', NOW(), NOW())
              RETURNING id`,
-            [pseudoTelegramId, phone, name]
+            [pseudoTelegramId, phoneValue, name]
         );
 
         logger.info({ userId: newUser.rows[0].id }, 'User created');
