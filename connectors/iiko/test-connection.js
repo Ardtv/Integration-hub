@@ -81,27 +81,29 @@ async function main() {
     }
     console.log('');
 
-    console.log('▶ Тест 4: Меню (номенклатура)');
-    try {
-        const menu = await IikoClient.getNomenclature(orgId);
-        const products = menu.products || [];
-        const groups = menu.groups || [];
-        const categories = menu.productCategories || [];
+    console.log('▶ Тест 4: Внешнее меню');
+try {
+    const menuList = await IikoClient.getExternalMenus(orgId);
+    const externalMenus = menuList.externalMenus || [];
 
-        console.log(`✅ Товаров: ${products.length} | Групп: ${groups.length} | Категорий: ${categories.length}`);
-        console.log(`   revision: ${menu.revision || '—'}`);
+    if (externalMenus.length === 0) {
+        console.log('⚠️ Внешних меню нет');
+    } else {
+        const externalMenu = externalMenus[0];
+        console.log(`✅ Внешних меню: ${externalMenus.length}`);
+        console.log(`   - ${externalMenu.name} (id: ${externalMenu.id})`);
 
-        if (products.length === 0) {
-            console.log('   ℹ️ Меню пустое — заказчик ещё не заполнил');
-        } else {
-            for (const p of products.slice(0, 5)) {
-                const price = p.sizePrices?.[0]?.price?.current || '—';
-                console.log(`   - ${p.name} (id: ${p.id}, price: ${price})`);
-            }
+        const menu = await IikoClient.getExternalMenuById(orgId, externalMenu.id);
+        const categories = menu.itemCategories || [];
+        let totalItems = 0;
+        for (const cat of categories) {
+            totalItems += (cat.items || []).length;
         }
-    } catch (e) {
-        console.error('❌ Ошибка:', e.message);
+        console.log(`   Категорий: ${categories.length} | Товаров: ${totalItems}`);
     }
+} catch (e) {
+    console.error('❌ Ошибка:', e.message);
+}
     console.log('');
 
     console.log('▶ Тест 5: Стоп-лист');

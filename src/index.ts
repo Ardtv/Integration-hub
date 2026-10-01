@@ -10,6 +10,7 @@ import { QueueWorker } from './queue/worker';
 import { setupRoutes } from './api/events.controller';
 import { logger } from './config/logger';
 import { OrderItemRepository } from './repositories/order-item.repository';
+import { IikoService } from './services/iiko.service';
 
 dotenv.config();
 
@@ -25,6 +26,13 @@ const orderItemRepo = new OrderItemRepository(pool);
 
 const orderService = new OrderService(orderRepo, mappingRepo, orderItemRepo, pool);
 const eventHandler = new EventHandlerService(orderService, queueRepo);
+
+const iikoService = new IikoService(
+  process.env.IIKO_API_KEY!,
+  process.env.IIKO_APP_ID!,
+  process.env.IIKO_CLIENT_SECRET!
+);
+
 
 app.use('/api', setupRoutes(queueRepo));
 
