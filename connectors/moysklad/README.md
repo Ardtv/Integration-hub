@@ -36,3 +36,13 @@ const url = 'http://<ВНЕШНИЙ_АДРЕС>:3007/webhook/moysklad?secret=' +
 
 ## Проверка
 `node connectors/moysklad/test-connection.js` — товары, остатки, список вебхуков.
+
+## Синхронизация по расписанию (cron)
+`connectors/moysklad/sync-products.js` — забирает все товары и шлёт в hub (`moysklad.product.updated`).
+`operationKey = moysklad_<id>_sync_<updated>` — неизменённые товары hub отбрасывает как `duplicate`.
+
+Cron (раз в 30 мин, `flock` от наложения):
+`*/30 * * * * cd /root/integration-hub && flock -n /tmp/moysklad-sync.lock node connectors/moysklad/sync-products.js >> /var/log/moysklad-sync.log 2>&1`
+
+Флаги: `--file <json>` — товары из файла вместо API (тест: `fixtures/products.sample.json`), `--dry-run` — без отправки.
+Пока `MOYSKLAD_TOKEN` — заглушка, запуск пропускается без ошибки. Лог: `tail /var/log/moysklad-sync.log`.
