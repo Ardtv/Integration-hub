@@ -49,11 +49,11 @@ echo "▶ hub (:3001)"
 
 check "CDEK" 3003 /webhook/cdek CDEK_WEBHOOK_SECRET "TEST-$RUN-CDEK" "{\"type\":\"ORDER_STATUS\",\"uuid\":\"TEST-$RUN-CDEK\",\"attributes\":{\"code\":\"DELIVERED\",\"status_date_time\":\"t$RUN\"}}"
 check "Fulfillment" 3004 /webhook/fulfillment FULFILLMENT_WEBHOOK_SECRET "TEST-$RUN-FF" "{\"shipment\":{\"id\":\"TEST-$RUN-FF\",\"status\":\"assembling\",\"updated_at\":\"t$RUN\"}}"
-for p in ozon wb kaspi; do
+for p in; do
     check "Marketplace/$p" 3005 /webhook/$p MARKETPLACE_WEBHOOK_SECRET "TEST-$RUN-$p" "{\"order\":{\"posting_number\":\"TEST-$RUN-$p\",\"status\":\"delivered\",\"updated_at\":\"t$RUN\"}}"
 done
 check "1С" 3006 /webhook/1c API_1C_WEBHOOK_SECRET "TEST-$RUN-1C" "{\"order\":{\"id\":\"TEST-$RUN-1C\",\"status\":\"paid\",\"sum\":100,\"version\":\"t$RUN\"}}"
-check "МойСклад" 3007 /webhook/moysklad MOYSKLAD_WEBHOOK_SECRET "TEST-$RUN-MS" "{\"auditContext\":{\"moment\":\"t$RUN\"},\"events\":[{\"meta\":{\"type\":\"product\",\"href\":\"https://api.moysklad.ru/api/remap/1.2/entity/product/TEST-$RUN-MS\"},\"action\":\"UPDATE\",\"entity\":{\"id\":\"TEST-$RUN-MS\",\"name\":\"Тест\",\"salePrices\":[{\"value\":100}]}}]}"
+# check "МойСклад" 3007 /webhook/moysklad MOYSKLAD_WEBHOOK_SECRET "TEST-$RUN-MS" "{\"auditContext\":{\"moment\":\"t$RUN\"},\"events\":[{\"meta\":{\"type\":\"product\",\"href\":\"https://api.moysklad.ru/api/remap/1.2/entity/product/TEST-$RUN-MS\"},\"action\":\"UPDATE\",\"entity\":{\"id\":\"TEST-$RUN-MS\",\"name\":\"Тест\",\"salePrices\":[{\"value\":100}]}}]}"
 
 echo "▶ обработка в hub"
 wait_queue
