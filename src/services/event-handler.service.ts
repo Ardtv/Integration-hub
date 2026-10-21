@@ -13,24 +13,37 @@ export class EventHandlerService {
        logger.info({ eventId: event.id, eventType: event.event_type, source: event.source }, 'Processing event')
 
         try {
-            switch (event.source) {
+          switch (event.source) {
                 case 'test':
                     logger.info({ payload: event.payload }, 'Test event processed')
                     return;
 
-case 'amo':
-    await this.handleAmo(event);
-    return;
+                case 'amo':
+                    await this.handleAmo(event);
+                    return;
 
-case 'iiko':
-    await this.handleIiko(event);
-    return;
+                case 'iiko':
+                    await this.handleIiko(event);
+                    return;
+
                 case 'cdek':
-                    logger.info({ eventType: event.event_type }, 'CDEK event')
+                    await this.handleCdek(event);
                     return;
 
                 case 'fulfillment':
-                    logger.info({ eventType: event.event_type }, 'Fulfillment event')
+                    await this.handleFulfillment(event);
+                    return;
+
+                case 'marketplace':
+                    await this.handleMarketplace(event);
+                    return;
+
+                case '1c':
+                    await this.handle1C(event);
+                    return;
+
+                case 'moysklad':
+                    await this.handleMoysklad(event);
                     return;
 
                 default:
@@ -139,5 +152,29 @@ logger.warn({ eventType: event.event_type }, 'Amo event without order payload')
             default:
                 logger.warn({ eventType: event.event_type }, 'Unknown IIKO event type');
         }
+    }
+    private async handleCdek(event: QueueEvent): Promise<void> {
+        logger.info({ eventType: event.event_type, payload: event.payload }, 'CDEK event received');
+        // TODO: сохранить в cdek_orders
+    }
+
+    private async handleFulfillment(event: QueueEvent): Promise<void> {
+        logger.info({ eventType: event.event_type, payload: event.payload }, 'Fulfillment event received');
+        // TODO: сохранить в fulfillment_shipments
+    }
+
+    private async handleMarketplace(event: QueueEvent): Promise<void> {
+        logger.info({ eventType: event.event_type, payload: event.payload }, 'Marketplace event received');
+        // TODO: сохранить в marketplace_orders
+    }
+
+    private async handle1C(event: QueueEvent): Promise<void> {
+        logger.info({ eventType: event.event_type, payload: event.payload }, '1C event received');
+        // TODO: сохранить в 1c_orders
+    }
+
+    private async handleMoysklad(event: QueueEvent): Promise<void> {
+        logger.info({ eventType: event.event_type, payload: event.payload }, 'MoySklad event received');
+        // TODO: сохранить в moysklad_products
     }
 }
