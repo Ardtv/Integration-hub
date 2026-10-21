@@ -33,7 +33,7 @@ function extractShipment(shipment) {
             customer_name: shipment.customer?.name || 'Unknown',
             customer_phone: shipment.customer?.phone || `unknown_${shipment.id}`,
             delivery_address: formatAddress(shipment.delivery_address),
-            currency: 'RUB',
+            currency: process.env.FF_CURRENCY || 'RUB',
             total_amount_minor: Math.round((shipment.total || 0) * 100),
             status: mapStatus(shipment.status),
             comment: `Fulfillment shipment ${shipment.number || shipment.id}`,

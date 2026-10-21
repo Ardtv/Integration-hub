@@ -58,7 +58,7 @@ function extractOrder(cdekOrder) {
             customer_name: cdekOrder.recipient?.name || 'Unknown',
             customer_phone: phone || `unknown_${cdekOrder.uuid}`,
             delivery_address: formatAddress(cdekOrder.to_location),
-            currency: 'RUB',
+            currency: process.env.FF_CURRENCY || 'RUB',
             status: mapStatus(lastStatus.code),
             comment: `CDEK ${cdekOrder.cdek_number || cdekOrder.uuid}`,
             items: collectItems(cdekOrder)

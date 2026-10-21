@@ -29,3 +29,13 @@ eventType: `fulfillment.shipment.updated`. `operationKey = fulfillment_<id>_<upd
 
 ## Проверка
 `node connectors/fulfillment/test-connection.js` · `./scripts/test-all-connectors.sh`
+
+## СДЭК Фулфилмент: остатки (Orderadmin API)
+Кабинет seller.ffcdek.ru работает на Orderadmin. API: `FF_API_BASE` (https://cdek.api.orderadmin.ru).
+Вход: `POST /oauth` (`grant_type=password`, `client_id=orderadmin`, `domain=cdek`, логин/пароль кабинета — `FF_USERNAME`/`FF_PASSWORD`).
+Ключи СДЭК у фулфилмента те же, что в lk.cdek.ru — заказы СДЭК по договору попадают на склад автоматически.
+
+`connectors/fulfillment/sync-stock.js` — раз в 30 мин: `GET /api/products/offer` → событие `fulfillment.stock.updated`
+(`external_system=cdek_ff`, `product.stock` — остаток в состоянии normal, цены в `FF_CURRENCY`, договор в KZT).
+Служебные позиции (`state=inactive`) пропускаются. Неизменённые остатки → `duplicate`. `--dry-run` — только показать.
+Лог: `tail /var/log/ff-stock-sync.log`.
