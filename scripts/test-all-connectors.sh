@@ -12,6 +12,15 @@ bad()    { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
 psqlq()  { sudo -u postgres psql -d instinct_db -tAc "$1"; }
 post()   { curl -s -m 15 -X POST "$1" -H "Content-Type: application/json" -d "$2"; }
 code()   { curl -s -o /dev/null -m 10 -w "%{http_code}" -X POST "$1" -H "Content-Type: application/json" -d '{}'; }
+wait_queue() {
+    for i in $(seq 1 20); do
+        local p; p=$(psqlq "SELECT COUNT(*) FROM integration_queue WHERE payload::text LIKE '%TEST-$RUN-%' AND status::text IN ('pending','processing')")
+        [[ $p == 0 ]] && { echo "  ⏱ очередь разобрана за $((i*2)) с"; return; }
+        sleep 2
+    done
+    echo "  ⏱ не разобрано за 40 с"
+}
+
 
 check() {
     local name=$1 port=$2 path=$3 secret_var=$4 marker=$5 body=$6
@@ -47,7 +56,7 @@ check "1С" 3006 /webhook/1c API_1C_WEBHOOK_SECRET "TEST-$RUN-1C" "{\"order\":{\
 check "МойСклад" 3007 /webhook/moysklad MOYSKLAD_WEBHOOK_SECRET "TEST-$RUN-MS" "{\"auditContext\":{\"moment\":\"t$RUN\"},\"events\":[{\"meta\":{\"type\":\"product\",\"href\":\"https://api.moysklad.ru/api/remap/1.2/entity/product/TEST-$RUN-MS\"},\"action\":\"UPDATE\",\"entity\":{\"id\":\"TEST-$RUN-MS\",\"name\":\"Тест\",\"salePrices\":[{\"value\":100}]}}]}"
 
 echo "▶ обработка в hub"
-sleep 6
+wait_queue
 psqlq "SELECT source || ' → ' || status FROM integration_queue WHERE payload::text LIKE '%TEST-$RUN-%' ORDER BY id" | sed 's/^/  /'
 NP=$(psqlq "SELECT COUNT(*) FROM integration_queue WHERE payload::text LIKE '%TEST-$RUN-%' AND status::text <> 'processed'")
 [[ $NP == 0 ]] && ok "все события processed" || bad "не обработано: $NP"
