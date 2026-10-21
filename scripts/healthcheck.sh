@@ -57,3 +57,13 @@ LIMIT 5;"
 echo ""
 
 echo "════════ DONE ════════"
+
+echo ""
+echo "── Коннекторы (3002–3007) ──"
+for PORT in 3002 3003 3004 3005 3006 3007; do
+    if curl -s -f http://localhost:$PORT/health > /dev/null 2>&1; then
+        echo "✅ :$PORT OK"
+    else
+        echo "⚠️ :$PORT недоступен (stopped?)"
+    fi
+done

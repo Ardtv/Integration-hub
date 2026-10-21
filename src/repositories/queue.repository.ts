@@ -127,8 +127,9 @@ export class QueueRepository {
         );
     }
 
-    async getStats(): Promise<{
+        async getStats(): Promise<{
         queue: Record<string, number>;
+        by_source: Record<string, number>;
         orders_total: number;
         users_total: number;
         last_24h: { accepted: number; processed: number; failed: number; dead: number };
@@ -137,6 +138,12 @@ export class QueueRepository {
             SELECT status, COUNT(*)::int AS cnt
             FROM integration_queue
             GROUP BY status
+        `);
+
+        const bySource = await this.pool.query(`
+            SELECT source, COUNT(*)::int AS cnt
+            FROM integration_queue
+            GROUP BY source
         `);
 
         const ordersCount = await this.pool.query('SELECT COUNT(*)::int AS cnt FROM orders');
@@ -163,8 +170,14 @@ export class QueueRepository {
             queue[row.status] = Number(row.cnt);
         }
 
+        const sources: Record<string, number> = {};
+        for (const row of bySource.rows) {
+            sources[row.source] = Number(row.cnt);
+        }
+
         return {
             queue,
+            by_source: sources,
             orders_total: Number(ordersCount.rows[0].cnt),
             users_total: Number(usersCount.rows[0].cnt),
             last_24h: {
