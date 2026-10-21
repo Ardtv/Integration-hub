@@ -8,16 +8,16 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.FULFILLMENT_WEBHOOK_PORT || 3004;
-const FULFILLMENT_WEBHOOK_SECRET = process.env.FULFILLMENT_WEBHOOK_SECRET;
+const SECRET = process.env.FULFILLMENT_WEBHOOK_SECRET;
 
 function verifyWebhookSecret(req, res, next) {
-    if (!FULFILLMENT_WEBHOOK_SECRET) {
+    if (!SECRET) {
         console.warn('⚠️ FULFILLMENT_WEBHOOK_SECRET не задан — пропускаю проверку');
         return next();
     }
     const token = req.headers['x-webhook-secret'] || req.query.secret;
-    if (token !== FULFILLMENT_WEBHOOK_SECRET) {
-        console.warn(`🚫 Unauthorized webhook from ${req.ip}`);
+    if (token !== SECRET) {
+        console.warn(`🚫 Unauthorized Fulfillment webhook from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();
@@ -27,11 +27,10 @@ app.post('/webhook/fulfillment', verifyWebhookSecret, async (req, res) => {
     try {
         console.log('📨 Получен вебхук от Fulfillment:', JSON.stringify(req.body).slice(0, 2000));
 
-        const body = req.body;
-        const shipments = body.shipments || (body.shipment ? [body.shipment] : []);
+        const body = req.body || {};
+        const shipments = Array.isArray(body.shipments) ? body.shipments : (body.shipment ? [body.shipment] : []);
 
         if (shipments.length === 0) {
-            console.warn('⚠️ Нет shipments в вебхуке');
             return res.status(400).json({ error: 'No shipments in payload' });
         }
 
@@ -42,24 +41,25 @@ app.post('/webhook/fulfillment', verifyWebhookSecret, async (req, res) => {
         for (const shipment of shipments) {
             const event = extractShipment(shipment);
             if (!event) {
-                console.warn('⚠️ Не удалось извлечь shipment');
+                console.warn('⚠️ Fulfillment: не удалось извлечь shipment');
                 failCount++;
                 continue;
             }
+
+            const { version, ...payload } = event;
 
             try {
                 const result = await HubClient.sendWithRetry({
                     eventType: 'fulfillment.shipment.updated',
                     source: 'fulfillment',
-                    payload: event,
-                    operationKey: `fulfillment_${event.external_id}_${Date.now()}`
+                    payload,
+                    operationKey: `fulfillment_${payload.external_id}_${version}`
                 });
-
-                console.log(`✅ Отправлено в Hub:`, result);
-                results.push({ external_id: event.external_id, hub: result });
+                console.log(`✅ Fulfillment → Hub: ${payload.external_id}`, result);
+                results.push({ external_id: payload.external_id, hub: result });
                 successCount++;
             } catch (e) {
-                console.error(`❌ Ошибка:`, e.message);
+                console.error(`❌ Fulfillment → Hub: ${payload.external_id}:`, e.message);
                 failCount++;
             }
         }
@@ -72,7 +72,7 @@ app.post('/webhook/fulfillment', verifyWebhookSecret, async (req, res) => {
             results
         });
     } catch (error) {
-        console.error('❌ Ошибка вебхука:', error);
+        console.error('❌ Ошибка вебхука Fulfillment:', error);
         res.status(500).json({ error: error.message });
     }
 });

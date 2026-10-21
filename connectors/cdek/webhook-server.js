@@ -1,38 +1,46 @@
 require('dotenv').config({ path: __dirname + '/../../.env', quiet: true });
 
 const express = require('express');
-const CdekClient = require('./cdek-client');
 const HubClient = require('../shared/hub-client');
-const { extractOrder } = require('./parsers/order-parser');
+const { extractOrder, extractStatusEvent } = require('./parsers/order-parser');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.CDEK_WEBHOOK_PORT || 3003;
-const CDEK_WEBHOOK_SECRET = process.env.CDEK_WEBHOOK_SECRET;
+const SECRET = process.env.CDEK_WEBHOOK_SECRET;
 
 function verifyWebhookSecret(req, res, next) {
-    if (!CDEK_WEBHOOK_SECRET) {
+    if (!SECRET) {
         console.warn('⚠️ CDEK_WEBHOOK_SECRET не задан — пропускаю проверку');
         return next();
     }
     const token = req.headers['x-webhook-secret'] || req.query.secret;
-    if (token !== CDEK_WEBHOOK_SECRET) {
-        console.warn(`🚫 Unauthorized webhook from ${req.ip}`);
+    if (token !== SECRET) {
+        console.warn(`🚫 Unauthorized CDEK webhook from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();
+}
+
+function collectEvents(body) {
+    if (body.type === 'ORDER_STATUS') {
+        const ev = extractStatusEvent(body);
+        return ev ? [{ eventType: 'cdek.order.status_updated', data: ev }] : [null];
+    }
+    const orders = Array.isArray(body.orders) ? body.orders : (body.order ? [body.order] : []);
+    return orders.map(o => {
+        const ev = extractOrder(o);
+        return ev ? { eventType: 'cdek.order.updated', data: ev } : null;
+    });
 }
 
 app.post('/webhook/cdek', verifyWebhookSecret, async (req, res) => {
     try {
         console.log('📨 Получен вебхук от CDEK:', JSON.stringify(req.body).slice(0, 2000));
 
-        const body = req.body;
-        const orders = body.orders || (body.order ? [body.order] : []);
-
-        if (orders.length === 0) {
-            console.warn('⚠️ Нет заказов в вебхуке');
+        const events = collectEvents(req.body || {});
+        if (events.length === 0) {
             return res.status(400).json({ error: 'No orders in payload' });
         }
 
@@ -40,27 +48,27 @@ app.post('/webhook/cdek', verifyWebhookSecret, async (req, res) => {
         let successCount = 0;
         let failCount = 0;
 
-        for (const cdekOrder of orders) {
-            const event = extractOrder(cdekOrder);
-            if (!event) {
-                console.warn('⚠️ Не удалось извлечь заказ');
+        for (const item of events) {
+            if (!item) {
+                console.warn('⚠️ CDEK: не удалось извлечь событие');
                 failCount++;
                 continue;
             }
 
+            const { version, ...payload } = item.data;
+
             try {
                 const result = await HubClient.sendWithRetry({
-                    eventType: 'cdek.order.updated',
+                    eventType: item.eventType,
                     source: 'cdek',
-                    payload: event,
-                    operationKey: `cdek_${event.external_id}_${Date.now()}`
+                    payload,
+                    operationKey: `cdek_${payload.external_id}_${version}`
                 });
-
-                console.log(`✅ Отправлено в Hub:`, result);
-                results.push({ external_id: event.external_id, hub: result });
+                console.log(`✅ CDEK → Hub: ${item.eventType} ${payload.external_id}`, result);
+                results.push({ external_id: payload.external_id, eventType: item.eventType, hub: result });
                 successCount++;
             } catch (e) {
-                console.error(`❌ Ошибка:`, e.message);
+                console.error(`❌ CDEK → Hub: ${payload.external_id}:`, e.message);
                 failCount++;
             }
         }
@@ -73,7 +81,7 @@ app.post('/webhook/cdek', verifyWebhookSecret, async (req, res) => {
             results
         });
     } catch (error) {
-        console.error('❌ Ошибка вебхука:', error);
+        console.error('❌ Ошибка вебхука CDEK:', error);
         res.status(500).json({ error: error.message });
     }
 });

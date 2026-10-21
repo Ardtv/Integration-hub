@@ -22,7 +22,7 @@ async function main() {
     console.log('▶ Тест 1: Health-check');
     try {
         const ping = await FulfillmentClient.ping();
-        console.log('✅ Ping:', ping);
+        console.log(ping.ok ? '✅ Ping:' : '❌ Ping:', ping);
     } catch (e) {
         console.error('❌ Ошибка:', e.message);
     }
