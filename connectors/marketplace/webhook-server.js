@@ -8,132 +8,75 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.MARKETPLACE_WEBHOOK_PORT || 3005;
-const MARKETPLACE_WEBHOOK_SECRET = process.env.MARKETPLACE_WEBHOOK_SECRET;
+const SECRET = process.env.MARKETPLACE_WEBHOOK_SECRET;
+const PLATFORMS = ['ozon', 'wb', 'kaspi'];
 
 function verifyWebhookSecret(req, res, next) {
-    if (!MARKETPLACE_WEBHOOK_SECRET) {
+    if (!SECRET) {
         console.warn('⚠️ MARKETPLACE_WEBHOOK_SECRET не задан — пропускаю проверку');
         return next();
     }
     const token = req.headers['x-webhook-secret'] || req.query.secret;
-    if (token !== MARKETPLACE_WEBHOOK_SECRET) {
-        console.warn(`🚫 Unauthorized webhook from ${req.ip}`);
+    if (token !== SECRET) {
+        console.warn(`🚫 Unauthorized Marketplace webhook from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();
 }
 
-app.post('/webhook/ozon', verifyWebhookSecret, async (req, res) => {
-    try {
-        console.log('📨 Ozon webhook:', JSON.stringify(req.body).slice(0, 2000));
-
-        const body = req.body;
-        const orders = body.orders || (body.order ? [body.order] : []);
-
-        if (orders.length === 0) {
-            return res.status(400).json({ error: 'No orders' });
-        }
-
-        for (const order of orders) {
-            const event = extractOrder(order, 'ozon');
-            if (!event) continue;
-
-            try {
-                await HubClient.sendWithRetry({
-                    eventType: 'marketplace.order.updated',
-                    source: 'ozon',
-                    payload: event,
-                    operationKey: `ozon_${event.external_id}_${Date.now()}`
-                });
-                console.log(`✅ Ozon order ${event.external_id} sent to Hub`);
-            } catch (e) {
-                console.error(`❌ Ozon order ${event.external_id} failed:`, e.message);
-            }
-        }
-
-        res.status(200).json({ status: 'sent' });
-    } catch (error) {
-        console.error('❌ Ozon webhook error:', error);
-        res.status(500).json({ error: error.message });
+async function sendOne(platform, raw) {
+    const event = extractOrder(raw, platform);
+    if (!event) {
+        console.warn(`⚠️ ${platform}: не удалось извлечь заказ`);
+        return { ok: false };
     }
-});
-
-app.post('/webhook/wb', verifyWebhookSecret, async (req, res) => {
+    const { version, ...payload } = event;
     try {
-        console.log('📨 WB webhook:', JSON.stringify(req.body).slice(0, 2000));
-
-        const body = req.body;
-        const orders = body.orders || (body.order ? [body.order] : []);
-
-        if (orders.length === 0) {
-            return res.status(400).json({ error: 'No orders' });
-        }
-
-        for (const order of orders) {
-            const event = extractOrder(order, 'wb');
-            if (!event) continue;
-
-            try {
-                await HubClient.sendWithRetry({
-                    eventType: 'marketplace.order.updated',
-                    source: 'wb',
-                    payload: event,
-                    operationKey: `wb_${event.external_id}_${Date.now()}`
-                });
-                console.log(`✅ WB order ${event.external_id} sent to Hub`);
-            } catch (e) {
-                console.error(`❌ WB order ${event.external_id} failed:`, e.message);
-            }
-        }
-
-        res.status(200).json({ status: 'sent' });
-    } catch (error) {
-        console.error('❌ WB webhook error:', error);
-        res.status(500).json({ error: error.message });
+        const result = await HubClient.sendWithRetry({
+            eventType: 'marketplace.order.updated',
+            source: platform,
+            payload,
+            operationKey: `${payload.external_id}_${version}`
+        });
+        console.log(`✅ ${platform} → Hub: ${payload.external_id}`, result);
+        return { ok: true, external_id: payload.external_id, hub: result };
+    } catch (e) {
+        console.error(`❌ ${platform} → Hub: ${payload.external_id}:`, e.message);
+        return { ok: false, external_id: payload.external_id };
     }
-});
+}
 
-app.post('/webhook/kaspi', verifyWebhookSecret, async (req, res) => {
-    try {
-        console.log('📨 Kaspi webhook:', JSON.stringify(req.body).slice(0, 2000));
+function makeHandler(platform) {
+    return async (req, res) => {
+        try {
+            console.log(`📨 ${platform} webhook:`, JSON.stringify(req.body).slice(0, 2000));
+            const body = req.body || {};
+            const orders = Array.isArray(body.orders) ? body.orders : (body.order ? [body.order] : []);
+            if (orders.length === 0) return res.status(400).json({ error: 'No orders in payload' });
 
-        const body = req.body;
-        const orders = body.orders || (body.order ? [body.order] : []);
+            const results = [];
+            for (const raw of orders) results.push(await sendOne(platform, raw));
+            const success = results.filter(r => r.ok).length;
+            const failed = results.length - success;
+            const httpStatus = success === 0 && failed > 0 ? 500 : 200;
 
-        if (orders.length === 0) {
-            return res.status(400).json({ error: 'No orders' });
+            res.status(httpStatus).json({ status: httpStatus === 200 ? 'sent' : 'failed', success, failed, results });
+        } catch (error) {
+            console.error(`❌ ${platform} webhook error:`, error);
+            res.status(500).json({ error: error.message });
         }
+    };
+}
 
-        for (const order of orders) {
-            const event = extractOrder(order, 'kaspi');
-            if (!event) continue;
-
-            try {
-                await HubClient.sendWithRetry({
-                    eventType: 'marketplace.order.updated',
-                    source: 'kaspi',
-                    payload: event,
-                    operationKey: `kaspi_${event.external_id}_${Date.now()}`
-                });
-                console.log(`✅ Kaspi order ${event.external_id} sent to Hub`);
-            } catch (e) {
-                console.error(`❌ Kaspi order ${event.external_id} failed:`, e.message);
-            }
-        }
-
-        res.status(200).json({ status: 'sent' });
-    } catch (error) {
-        console.error('❌ Kaspi webhook error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
+for (const platform of PLATFORMS) {
+    app.post(`/webhook/${platform}`, verifyWebhookSecret, makeHandler(platform));
+}
 
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', service: 'marketplace-connector' });
+    res.json({ status: 'ok', service: 'marketplace-connector', platforms: PLATFORMS });
 });
 
 app.listen(PORT, () => {
     console.log(`🚀 Marketplace коннектор запущен на порту ${PORT}`);
-    console.log(`📡 Вебхуки: /webhook/ozon, /webhook/wb, /webhook/kaspi`);
     console.log(`🔗 Хаб URL: ${process.env.HUB_URL || 'http://localhost:3001'}`);
 });
