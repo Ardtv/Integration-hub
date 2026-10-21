@@ -2,11 +2,13 @@ import { QueueEvent } from '../repositories/queue.repository';
 import { OrderService } from './order.service';
 import { QueueRepository } from '../repositories/queue.repository';
 import { logger } from '../config/logger';
+import { CdekOrderRepository } from '../repositories/cdek-order.repository';
 
 export class EventHandlerService {
     constructor(
         private orderService: OrderService,
-        private queueRepo: QueueRepository
+        private queueRepo: QueueRepository,
+        private cdekOrderRepo: CdekOrderRepository 
     ) {}
 
     async handle(event: QueueEvent): Promise<void> {
@@ -153,9 +155,59 @@ logger.warn({ eventType: event.event_type }, 'Amo event without order payload')
                 logger.warn({ eventType: event.event_type }, 'Unknown IIKO event type');
         }
     }
-    private async handleCdek(event: QueueEvent): Promise<void> {
-        logger.info({ eventType: event.event_type, payload: event.payload }, 'CDEK event received');
-        // TODO: сохранить в cdek_orders
+
+        private async handleCdek(event: QueueEvent): Promise<void> {
+        const payload = event.payload;
+        logger.info({ eventType: event.event_type, payload }, 'CDEK event received');
+
+        switch (event.event_type) {
+            case 'cdek.order.created': {
+                if (payload.cdek_uuid) {
+                    const existing = await this.cdekOrderRepo.findByUuid(payload.cdek_uuid);
+                    if (existing) {
+                        logger.info({ cdekUuid: payload.cdek_uuid }, 'CDEK order already exists — skip');
+                        break;
+                    }
+                }
+
+                await this.cdekOrderRepo.create({
+                    order_id: payload.order_id,
+                    cdek_uuid: payload.cdek_uuid,
+                    cdek_number: payload.cdek_number,
+                    status: payload.status || 'CREATED',
+                    status_code: payload.status_code || '1',
+                    delivery_sum: payload.delivery_sum,
+                    city: payload.city,
+                    address: payload.address
+                });
+
+                logger.info({ cdekUuid: payload.cdek_uuid }, 'CDEK order created');
+                break;
+            }
+
+            case 'cdek.order.status_updated': {
+                if (!payload.cdek_uuid || !payload.status) {
+                    logger.warn({ payload }, 'CDEK status_updated without uuid/status');
+                    break;
+                }
+
+                const updated = await this.cdekOrderRepo.updateStatus(
+                    payload.cdek_uuid,
+                    payload.status,
+                    payload.status_code || ''
+                );
+
+                if (updated) {
+                    logger.info({ cdekUuid: payload.cdek_uuid, status: payload.status }, 'CDEK status updated');
+                } else {
+                    logger.warn({ cdekUuid: payload.cdek_uuid }, 'CDEK order not found for status update');
+                }
+                break;
+            }
+
+            default:
+                logger.warn({ eventType: event.event_type }, 'Unknown CDEK event');
+        }
     }
 
     private async handleFulfillment(event: QueueEvent): Promise<void> {

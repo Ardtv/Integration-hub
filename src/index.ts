@@ -11,6 +11,7 @@ import { setupRoutes } from './api/events.controller';
 import { logger } from './config/logger';
 import { OrderItemRepository } from './repositories/order-item.repository';
 import { IikoService } from './services/iiko.service';
+import { CdekOrderRepository } from './repositories/cdek-order.repository';
 
 dotenv.config();
 
@@ -23,9 +24,10 @@ const orderRepo = new OrderRepository(pool);
 const queueRepo = new QueueRepository(pool);
 const mappingRepo = new MappingRepository(pool);
 const orderItemRepo = new OrderItemRepository(pool);
+const cdekOrderRepo = new CdekOrderRepository(pool);
 
 const orderService = new OrderService(orderRepo, mappingRepo, orderItemRepo, pool);
-const eventHandler = new EventHandlerService(orderService, queueRepo);
+const eventHandler = new EventHandlerService(orderService, queueRepo, cdekOrderRepo);
 
 const iikoService = new IikoService(
   process.env.IIKO_API_KEY!,
