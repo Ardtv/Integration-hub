@@ -12,6 +12,11 @@ import { logger } from './config/logger';
 import { OrderItemRepository } from './repositories/order-item.repository';
 import { IikoService } from './services/iiko.service';
 import { CdekOrderRepository } from './repositories/cdek-order.repository';
+import { FulfillmentOrderRepository } from './repositories/fulfillment-order.repository';
+import { MarketplaceOrderRepository } from './repositories/marketplace-order.repository';
+import { OnecOrderRepository } from './repositories/onec-order.repository';
+import { MoyskladProductRepository } from './repositories/moysklad-product.repository';
+
 
 dotenv.config();
 
@@ -25,9 +30,21 @@ const queueRepo = new QueueRepository(pool);
 const mappingRepo = new MappingRepository(pool);
 const orderItemRepo = new OrderItemRepository(pool);
 const cdekOrderRepo = new CdekOrderRepository(pool);
+const fulfillmentOrderRepo = new FulfillmentOrderRepository(pool);
+const marketplaceOrderRepo = new MarketplaceOrderRepository(pool);
+const onecOrderRepo = new OnecOrderRepository(pool);
+const moyskladProductRepo = new MoyskladProductRepository(pool);
 
 const orderService = new OrderService(orderRepo, mappingRepo, orderItemRepo, pool);
-const eventHandler = new EventHandlerService(orderService, queueRepo, cdekOrderRepo);
+const eventHandler = new EventHandlerService(
+    orderService,
+    queueRepo,
+    cdekOrderRepo,
+    fulfillmentOrderRepo,
+    marketplaceOrderRepo,
+    onecOrderRepo,
+    moyskladProductRepo
+);
 
 const iikoService = new IikoService(
   process.env.IIKO_API_KEY!,

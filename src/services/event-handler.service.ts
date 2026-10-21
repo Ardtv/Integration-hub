@@ -3,13 +3,22 @@ import { OrderService } from './order.service';
 import { QueueRepository } from '../repositories/queue.repository';
 import { logger } from '../config/logger';
 import { CdekOrderRepository } from '../repositories/cdek-order.repository';
+import { FulfillmentOrderRepository } from '../repositories/fulfillment-order.repository';
+import { MarketplaceOrderRepository } from '../repositories/marketplace-order.repository';
+import { OnecOrderRepository } from '../repositories/onec-order.repository';
+import { MoyskladProductRepository } from '../repositories/moysklad-product.repository';
 
 export class EventHandlerService {
     constructor(
         private orderService: OrderService,
         private queueRepo: QueueRepository,
-        private cdekOrderRepo: CdekOrderRepository 
+        private cdekOrderRepo: CdekOrderRepository,
+        private fulfillmentOrderRepo: FulfillmentOrderRepository,
+        private marketplaceOrderRepo: MarketplaceOrderRepository,
+        private onecOrderRepo: OnecOrderRepository,
+        private moyskladProductRepo: MoyskladProductRepository
     ) {}
+
 
     async handle(event: QueueEvent): Promise<void> {
        logger.info({ eventId: event.id, eventType: event.event_type, source: event.source }, 'Processing event')
@@ -209,24 +218,117 @@ logger.warn({ eventType: event.event_type }, 'Amo event without order payload')
                 logger.warn({ eventType: event.event_type }, 'Unknown CDEK event');
         }
     }
+        private async handleFulfillment(event: QueueEvent): Promise<void> {
+        const payload = event.payload;
 
-    private async handleFulfillment(event: QueueEvent): Promise<void> {
-        logger.info({ eventType: event.event_type, payload: event.payload }, 'Fulfillment event received');
-        // TODO: сохранить в fulfillment_shipments
+        switch (event.event_type) {
+            case 'fulfillment.order.ready': {
+                const existing = await this.fulfillmentOrderRepo.findByFulfillmentId(payload.fulfillment_id);
+                if (existing) {
+                    logger.info({ fulfillmentId: payload.fulfillment_id }, 'Fulfillment order already exists — skip');
+                    return;
+                }
+
+                await this.fulfillmentOrderRepo.create({
+                    fulfillment_id: payload.fulfillment_id,
+                    status: payload.status,
+                    status_code: payload.status_code,
+                    warehouse: payload.warehouse,
+                    order_id: payload.order_id
+                });
+                logger.info({ fulfillmentId: payload.fulfillment_id }, 'Fulfillment order created');
+                break;
+            }
+
+            case 'fulfillment.order.status_updated': {
+                const updated = await this.fulfillmentOrderRepo.updateStatus(
+                    payload.fulfillment_id,
+                    payload.status,
+                    payload.status_code
+                );
+
+                if (updated) {
+                    logger.info({ fulfillmentId: payload.fulfillment_id, status: payload.status }, 'Fulfillment order status updated');
+                } else {
+                    logger.warn({ fulfillmentId: payload.fulfillment_id }, 'Fulfillment order not found');
+                }
+                break;
+            }
+
+            default:
+                logger.warn({ eventType: event.event_type }, 'Unknown fulfillment event');
+        }
     }
 
     private async handleMarketplace(event: QueueEvent): Promise<void> {
-        logger.info({ eventType: event.event_type, payload: event.payload }, 'Marketplace event received');
-        // TODO: сохранить в marketplace_orders
+        const payload = event.payload;
+
+        switch (event.event_type) {
+            case 'marketplace.order.created':
+            case 'marketplace.order.updated': {
+                await this.marketplaceOrderRepo.create({
+                    marketplace: payload.marketplace,
+                    marketplace_order_id: payload.order_id,
+                    status: payload.status,
+                    total_amount_minor: payload.total_amount_minor,
+                    currency: payload.currency,
+                    order_id: payload.internal_order_id
+                });
+                logger.info({ marketplace: payload.marketplace, orderId: payload.order_id }, 'Marketplace order saved');
+                break;
+            }
+
+            default:
+                logger.warn({ eventType: event.event_type }, 'Unknown marketplace event');
+        }
     }
 
     private async handle1C(event: QueueEvent): Promise<void> {
-        logger.info({ eventType: event.event_type, payload: event.payload }, '1C event received');
-        // TODO: сохранить в 1c_orders
+        const payload = event.payload;
+
+        switch (event.event_type) {
+            case '1c.order.created': {
+                const existing = await this.onecOrderRepo.findByOnecId(payload.onec_id);
+                if (existing) {
+                    logger.info({ onecId: payload.onec_id }, '1C order already exists — skip');
+                    return;
+                }
+
+                await this.onecOrderRepo.create({
+                    onec_id: payload.onec_id,
+                    status: payload.status,
+                    total_amount_minor: payload.total_amount_minor,
+                    order_id: payload.order_id
+                });
+                logger.info({ onecId: payload.onec_id }, '1C order created');
+                break;
+            }
+
+            default:
+                logger.warn({ eventType: event.event_type }, 'Unknown 1C event');
+        }
     }
 
     private async handleMoysklad(event: QueueEvent): Promise<void> {
-        logger.info({ eventType: event.event_type, payload: event.payload }, 'MoySklad event received');
-        // TODO: сохранить в moysklad_products
+        const payload = event.payload;
+
+        switch (event.event_type) {
+            case 'moysklad.product.updated':
+            case 'moysklad.product.created': {
+                await this.moyskladProductRepo.upsert({
+                    external_id: payload.product_id,
+                    name: payload.name,
+                    sku: payload.sku,
+                    price_minor: payload.price_minor,
+                    stock: payload.stock
+                });
+                logger.info({ productId: payload.product_id }, 'MoySklad product synced');
+                break;
+            }
+
+            default:
+                logger.warn({ eventType: event.event_type }, 'Unknown MoySklad event');
+        }
     }
 }
+
