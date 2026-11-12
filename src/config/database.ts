@@ -14,6 +14,9 @@ export const pool = new Pool({
     idleTimeoutMillis: 30000,
 });
 
+// Обрыв простаивающего соединения (например, перезапуск PostgreSQL) не должен ронять процесс.
+pool.on('error', err => logger.error({ err: err.message }, 'Ошибка соединения с базой'));
+
 export async function testConnection(): Promise<boolean> {
     try {
         await pool.query('SELECT 1');

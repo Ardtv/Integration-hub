@@ -3,7 +3,6 @@ const axios = require('axios');
 const BASE = (process.env.API_1C_BASE || '').replace(/\/+$/, '');
 const USER = process.env.API_1C_USER;
 const PASSWORD = process.env.API_1C_PASSWORD;
-const ORDER_DOCUMENT = process.env.API_1C_ORDER_DOCUMENT || 'Document_ЗаказКлиента';
 const TIMEOUT = 15000;
 
 function authHeader() {
@@ -64,16 +63,19 @@ class OneCClient {
         }
     }
 
-    static async getOrders({ since, top = 100 } = {}) {
-        const query = { $format: 'json', $top: top, $orderby: 'Date desc' };
-        if (since) query.$filter = `Date ge datetime'${since}'`;
-        const data = await this._request('GET', `/${encodeURIComponent(ORDER_DOCUMENT)}`, { query });
-        return data.value || [];
+    /** Ref_Key элемента справочника по наименованию. null, если не найден. */
+    static async findCatalogRefByName(catalog, name) {
+        const data = await this._request('GET', `/${encodeURIComponent(catalog)}`, {
+            query: { $format: 'json', $top: 1, $filter: `Description eq '${String(name).replace(/'/g, "''")}'` }
+        });
+        return data.value?.[0]?.Ref_Key || null;
     }
 
-    static async getOrder(refKey) {
-        return this._request('GET', `/${encodeURIComponent(ORDER_DOCUMENT)}(guid'${refKey}')`, {
-            query: { $format: 'json' }
+    /** Создаёт документ через стандартный интерфейс OData. Posted: false оставляет его черновиком. */
+    static async createDocument(documentName, body) {
+        return this._request('POST', `/${encodeURIComponent(documentName)}`, {
+            query: { $format: 'json' },
+            data: body
         });
     }
 }

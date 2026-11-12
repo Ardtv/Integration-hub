@@ -1,69 +1,27 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Проверяет процессы и очередь. При проблеме шлёт алерт в Telegram (если настроен) и выходит с кодом 1.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+set -a; [ -f .env ] && . ./.env; set +a
 
-echo "════════ HEALTHCHECK $(date '+%Y-%m-%d %H:%M:%S') ════════"
-echo ""
+problems=()
+check() { curl -fsS -m 5 "http://127.0.0.1:$2/health" >/dev/null 2>&1 || problems+=("$1 не отвечает на порту $2"); }
+check "Хаб" "${HUB_PORT:-3001}"
+check "amo-коннектор" "${AMO_WEBHOOK_PORT:-3002}"
+check "cdek-коннектор" "${CDEK_WEBHOOK_PORT:-3003}"
 
-echo "── Hub (:3001) ──"
-if curl -s -f http://localhost:3001/health > /dev/null; then
-    echo "✅ Hub OK"
-    curl -s http://localhost:3001/health
-    echo ""
-else
-    echo "❌ Hub недоступен"
+stats=$(curl -fsS -m 5 -H "X-Api-Token: ${HUB_API_TOKEN:-}" "http://127.0.0.1:${HUB_PORT:-3001}/api/admin/stats" 2>/dev/null || true)
+dead=$(printf '%s' "$stats" | sed -n 's/.*"dead":\([0-9]*\).*/\1/p')
+pending=$(printf '%s' "$stats" | sed -n 's/.*"pending":\([0-9]*\).*/\1/p')
+[ -n "$dead" ] && [ "$dead" -gt "${ALERT_DEAD_THRESHOLD:-0}" ] && problems+=("В очереди необработанных событий: $dead")
+[ -n "$pending" ] && [ "$pending" -gt "${ALERT_PENDING_THRESHOLD:-200}" ] && problems+=("Очередь растёт: ожидает $pending событий")
+
+if [ ${#problems[@]} -eq 0 ]; then echo "$(date -Is) ok ${stats}"; exit 0; fi
+
+text="Integration Hub: $(printf '%s; ' "${problems[@]}")"
+echo "$(date -Is) $text" >&2
+if [ -n "${ALERT_TG_BOT_TOKEN:-}" ] && [ -n "${ALERT_TG_CHAT_ID:-}" ]; then
+    curl -fsS -m 8 "https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage" \
+        --data-urlencode "chat_id=${ALERT_TG_CHAT_ID}" --data-urlencode "text=${text}" >/dev/null 2>&1 || true
 fi
-echo ""
-
-echo "── amo-connector (:3002) ──"
-if curl -s -f http://localhost:3002/health > /dev/null; then
-    echo "✅ amo-connector OK"
-    curl -s http://localhost:3002/health
-    echo ""
-else
-    echo "❌ amo-connector недоступен"
-fi
-echo ""
-
-echo "── PostgreSQL ──"
-if sudo -u postgres psql -d instinct_db -c "SELECT 1" > /dev/null 2>&1; then
-    echo "✅ БД OK"
-else
-    echo "❌ БД недоступна"
-fi
-echo ""
-
-echo "── Очередь (по статусам) ──"
-sudo -u postgres psql -d instinct_db -c "
-SELECT status, COUNT(*) AS cnt
-FROM integration_queue
-GROUP BY status
-ORDER BY status;"
-echo ""
-
-echo "── Последние 5 ошибок ──"
-sudo -u postgres psql -d instinct_db -c "
-SELECT id, event_type, LEFT(error_message, 60) AS error
-FROM integration_queue
-WHERE error_message IS NOT NULL
-ORDER BY id DESC
-LIMIT 5;"
-echo ""
-
-echo "── Последние 5 заказов ──"
-sudo -u postgres psql -d instinct_db -c "
-SELECT id, customer_name, customer_phone, total_amount_minor, status
-FROM orders
-ORDER BY id DESC
-LIMIT 5;"
-echo ""
-
-echo "════════ DONE ════════"
-
-echo ""
-echo "── Коннекторы (3002–3007) ──"
-for PORT in 3002 3003 3004 3005 3006 3007; do
-    if curl -s -f http://localhost:$PORT/health > /dev/null 2>&1; then
-        echo "✅ :$PORT OK"
-    else
-        echo "⚠️ :$PORT недоступен (stopped?)"
-    fi
-done
+exit 1

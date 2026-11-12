@@ -1,63 +1,26 @@
+// Клиент для отправки событий в хаб. Используется всеми коннекторами.
 const axios = require('axios');
 
-const HUB_URL = process.env.HUB_URL || 'http://localhost:3001';
-const MAX_ATTEMPTS = 3;
+const HUB_URL = (process.env.HUB_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
 
-class HubClient {
-    static async sendEvent(eventData) {
-        try {
-            const response = await axios.post(
-                `${HUB_URL}/api/events`,
-                eventData,
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Api-Token': process.env.HUB_API_TOKEN
-                    },
-                    timeout: 5000
-                }
-            );
-            return response.data;
-        } catch (error) {
-            console.error('❌ Failed to send to hub:', error.response?.data || error.message);
-            throw error;
-        }
-    }
-
-    static async sendWithRetry(eventData, attempt = 1) {
-        try {
-            return await this.sendEvent(eventData);
-        } catch (error) {
-            if (attempt < MAX_ATTEMPTS) {
-                const delay = Math.pow(2, attempt) * 1000;
-                console.warn(`⏳ Retry ${attempt}/${MAX_ATTEMPTS - 1} через ${delay}ms...`);
-                await new Promise(r => setTimeout(r, delay));
-                return this.sendWithRetry(eventData, attempt + 1);
-            }
-            console.error(`❌ Все ${MAX_ATTEMPTS} попытки исчерпаны`);
-            throw error;
-        }
-    }
-
-    static async getEventStatus(eventId) {
-        const response = await axios.get(`${HUB_URL}/api/events/${eventId}`, {
-            headers: {
-                'X-Api-Token': process.env.HUB_API_TOKEN
-            }
+async function send(event, attempt = 1) {
+    try {
+        const r = await axios.post(`${HUB_URL}/api/events`, event, {
+            headers: { 'Content-Type': 'application/json', 'X-Api-Token': process.env.HUB_API_TOKEN || '' },
+            timeout: 5000
         });
-        return response.data;
-    }
-
-    static async healthCheck() {
-        try {
-            const response = await axios.get(`${HUB_URL}/health`);
-            return response.data;
-        } catch (error) {
-            console.error('❌ Hub health check failed:', error.message);
-            return null;
+        return r.data;
+    } catch (e) {
+        const status = e.response?.status;
+        // 4xx — ошибка в самом событии, повтор не поможет.
+        if (attempt < 3 && (!status || status >= 500)) {
+            await new Promise(r => setTimeout(r, attempt * 500));
+            return send(event, attempt + 1);
         }
+        const err = new Error(`Hub ${status || ''}: ${e.response?.data?.error || e.message}`);
+        err.status = status;
+        throw err;
     }
 }
 
-module.exports = HubClient;
-
+module.exports = { sendWithRetry: send, send };

@@ -1,6 +1,7 @@
 const axios = require('axios');
 
-const CDEK_API_BASE = process.env.CDEK_API_BASE || 'https://api.cdek.ru/v2';
+// Боевой контур: https://api.cdek.ru/v2, тестовый: https://api.edu.cdek.ru/v2
+const CDEK_API_BASE = (process.env.CDEK_API_BASE || 'https://api.cdek.ru/v2').replace(/\/+$/, '');
 const CDEK_CLIENT_ID = process.env.CDEK_CLIENT_ID;
 const CDEK_CLIENT_SECRET = process.env.CDEK_CLIENT_SECRET;
 const CDEK_TIMEOUT = 15000;
@@ -48,7 +49,7 @@ class CdekClient {
             const response = await axios({
                 method,
                 url: `${CDEK_API_BASE}${path}`,
-                data,
+                data: (method === 'GET' || method === 'DELETE') ? undefined : data,
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
@@ -77,24 +78,45 @@ class CdekClient {
         return this._request('POST', '/orders', orderData);
     }
 
+    /** Изменение заказа: тело должно содержать uuid и изменяемые поля. */
+    static async updateOrder(orderData) {
+        return this._request('PATCH', '/orders', orderData);
+    }
+
+    static async cancelOrder(uuid) {
+        return this._request('DELETE', `/orders/${uuid}`);
+    }
+
     static async getOrder(uuid) {
         return this._request('GET', `/orders/${uuid}`);
     }
 
-    static async getOrderByNumber(number) {
-        return this._request('GET', `/orders?cdek_number=${number}`);
-    }
-
-    static async getOrderStatus(uuid) {
-        return this._request('GET', `/orders/${uuid}`);
+    /** Поиск заказа по номеру в нашей системе (мы передаём туда ID сделки). */
+    static async getOrderByImNumber(imNumber) {
+        try {
+            return await this._request('GET', `/orders?im_number=${encodeURIComponent(imNumber)}`);
+        } catch (e) {
+            if (e.response?.status === 404 || e.response?.status === 400) return null;
+            throw e;
+        }
     }
 
     static async getDeliveryPoints(params = {}) {
-        return this._request('GET', '/deliverypoints', null, params);
+        const qs = new URLSearchParams(params).toString();
+        return this._request('GET', `/deliverypoints${qs ? '?' + qs : ''}`);
     }
 
     static async calculateTariff(data) {
         return this._request('POST', '/calculator/tariff', data);
+    }
+
+    /** Подписка на вебхуки статусов заказов. */
+    static async subscribeWebhook(url, type = 'ORDER_STATUS') {
+        return this._request('POST', '/webhooks', { url, type });
+    }
+
+    static async listWebhooks() {
+        return this._request('GET', '/webhooks');
     }
 
     static async ping() {

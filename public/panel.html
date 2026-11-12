@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integration Hub — панель контроля</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#dfe3e8; --text:#1c2430; --muted:#66707d; --accent:#1f6feb; --bad:#c62828; --ok:#1b7f3b; --warn:#a15c00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --card:#1a2029; --line:#2c3541; --text:#e6eaf0; --muted:#9aa5b3; --accent:#6ea8ff; --bad:#ff7b72; --ok:#56d364; --warn:#e3b341; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--card); }
+  h1 { font-size:16px; margin:0 auto 0 0; }
+  main { padding:16px; max-width:1200px; margin:0 auto; }
+  input, select, button { font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  button { cursor:pointer; } button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  nav { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  nav button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+  .stats { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-width:96px; }
+  .stat b { display:block; font-size:18px; font-variant-numeric:tabular-nums; }
+  .wrap { overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; white-space:nowrap; }
+  td.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .tag { padding:1px 7px; border-radius:10px; border:1px solid currentColor; font-size:12px; white-space:nowrap; }
+  .bad { color:var(--bad); } .ok { color:var(--ok); } .warn { color:var(--warn); } .muted { color:var(--muted); }
+  .mode { font-weight:600; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; max-width:520px; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  #msg { margin:8px 0; min-height:20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Integration Hub</h1>
+  <span id="mode" class="mode muted">режим: —</span>
+  <input id="token" type="password" placeholder="Токен доступа" autocomplete="off" aria-label="Токен доступа">
+  <button class="primary" id="connect">Войти</button>
+</header>
+<main>
+  <div class="stats" id="stats"></div>
+  <nav>
+    <button data-tab="events" aria-pressed="true">Операции</button>
+    <button data-tab="shipments" aria-pressed="false">Отправки</button>
+    <button data-tab="products" aria-pressed="false">Товары</button>
+    <button data-tab="outbound" aria-pressed="false">Исходящие вызовы</button>
+    <button data-tab="deal" aria-pressed="false">Сделка</button>
+  </nav>
+  <div class="filters" id="filters"></div>
+  <div id="msg" role="status"></div>
+  <div class="wrap"><table id="table"></table></div>
+</main>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const api = location.pathname.replace(/\/panel$/, '') + '/api/admin';
+  let token = '', tab = 'events';
+  const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  const cls = s => ({ dead:'bad', failed:'warn', error:'bad', processed:'ok', done:'ok', ok:'ok', delivered:'ok', dry_run:'muted', skipped:'warn', returned:'warn' }[s] || '');
+  const tag = s => `<span class="tag ${cls(s)}">${esc(s)}</span>`;
+  const when = v => v ? new Date(v).toLocaleString('ru-RU') : '';
+  const msg = (t, bad) => { $('#msg').textContent = t || ''; $('#msg').className = bad ? 'bad' : 'muted'; };
+
+  async function call(path, opts = {}) {
+    const r = await fetch(api + path, { ...opts, headers: { 'X-Api-Token': token, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('Ошибка ' + r.status));
+    return data;
+  }
+  const render = (head, rows) => {
+    $('#table').innerHTML = '<thead><tr>' + head.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>'
+      + (rows.length ? rows.join('') : `<tr><td colspan="${head.length}" class="muted">Пусто</td></tr>`) + '</tbody>';
+  };
+
+  async function loadStats() {
+    const s = await call('/stats');
+    $('#mode').textContent = 'режим: ' + (s.mode === 'live' ? 'БОЕВОЙ' : 'тестовый');
+    $('#mode').className = 'mode ' + (s.mode === 'live' ? 'bad' : 'ok');
+    const names = { pending:'ожидают', processing:'в работе', processed:'обработано', failed:'повторяются', dead:'не обработаны' };
+    $('#stats').innerHTML = Object.entries(names).map(([k, n]) => `<div class="stat"><span class="muted">${n}</span><b class="${k === 'dead' && s.queue[k] ? 'bad' : ''}">${s.queue[k] ?? 0}</b></div>`).join('');
+  }
+
+  const tabs = {
+    async events() {
+      $('#filters').innerHTML = `<select id="f-status" aria-label="Статус"><option value="">все статусы</option><option>pending</option><option>failed</option><option>dead</option><option>processed</option></select>
+        <select id="f-source" aria-label="Источник"><option value="">все источники</option><option>amo</option><option>cdek</option><option>hub</option><option>fulfillment</option><option>panel</option></select>
+        <input id="f-deal" placeholder="ID сделки" inputmode="numeric" size="12"><button id="f-go">Показать</button>`;
+      const load = async () => {
+        const q = new URLSearchParams();
+        if ($('#f-status').value) q.set('status', $('#f-status').value);
+        if ($('#f-source').value) q.set('source', $('#f-source').value);
+        if ($('#f-deal').value) q.set('deal_id', $('#f-deal').value);
+        const rows = await call('/events?' + q);
+        render(['№', 'Когда', 'Источник', 'Событие', 'Сделка', 'Статус', 'Попыток', 'Ошибка', ''], rows.map(e => `<tr>
+          <td class="num">${e.id}</td><td class="num">${when(e.created_at)}</td><td>${esc(e.source)}</td><td>${esc(e.event_type)}</td>
+          <td class="num">${e.deal_id ? `<a href="#" data-deal="${e.deal_id}">${e.deal_id}</a>` : ''}</td><td>${tag(e.status)}</td><td class="num">${e.retry_count}</td>
+          <td><pre>${esc(e.error_message)}</pre></td>
+          <td>${['failed', 'dead'].includes(e.status) ? `<button data-retry="${e.id}">Повторить</button>` : ''}</td></tr>`));
+      };
+      $('#f-go').onclick = () => load().catch(e => msg(e.message, true));
+      await load();
+    },
+    async shipments() {
+      $('#filters').innerHTML = `<select id="f-state" aria-label="Состояние"><option value="">все состояния</option><option>error</option><option>manual</option><option>cdek_created</option><option>shipped</option><option>delivered</option><option>returned</option><option>cancelled</option></select><button id="f-go">Показать</button>`;
+      const load = async () => {
+        const rows = await call('/shipments' + ($('#f-state').value ? '?state=' + $('#f-state').value : ''));
+        render(['Сделка', 'Клиент', 'Способ', 'Страна', 'Доставка', 'Состояние', 'Трек', 'Статус СДЭК', 'Ошибка', 'Обновлено'], rows.map(s => `<tr>
+          <td class="num"><a href="#" data-deal="${s.deal_id}">${s.deal_id}</a></td><td>${esc(s.customer_name)}</td><td>${esc(s.method)}</td><td>${esc(s.country)}</td>
+          <td>${esc(s.delivery_type)}</td><td>${tag(s.state)}</td><td class="num">${esc(s.cdek_number)}</td><td>${esc(s.cdek_status)}</td><td><pre>${esc(s.error)}</pre></td><td class="num">${when(s.updated_at)}</td></tr>`));
+      };
+      $('#f-go').onclick = () => load().catch(e => msg(e.message, true));
+      await load();
+    },
+    async products() {
+      $('#filters').innerHTML = `<label><input type="checkbox" id="f-un"> только несопоставленные</label><button id="f-go">Показать</button>`;
+      const load = async () => {
+        const rows = await call('/products' + ($('#f-un').checked ? '?unmapped=1' : ''));
+        const cell = (p, k, w) => `<td><input data-k="${k}" value="${esc(p[k])}" size="${w}" aria-label="${k}"></td>`;
+        render(['ID amo', 'Название в amo', 'Товар IIKO', 'Единица IIKO', 'SKU фулфилмента', 'Вес, г', 'Карточка 1С', ''], rows.map(p => `<tr data-id="${p.amo_product_id}">
+          <td class="num">${p.amo_product_id}</td><td>${esc(p.amo_name)}</td>${cell(p, 'iiko_product_id', 26)}${cell(p, 'iiko_unit_id', 26)}${cell(p, 'cdek_sku', 12)}${cell(p, 'weight_g', 5)}${cell(p, 'onec_ref', 26)}
+          <td><button data-save="${p.amo_product_id}">Сохранить</button></td></tr>`));
+      };
+      $('#f-go').onclick = () => load().catch(e => msg(e.message, true));
+      await load();
+    },
+    async outbound() {
+      $('#filters').innerHTML = `<select id="f-sys" aria-label="Система"><option value="">все системы</option><option>amo</option><option>cdek</option><option>iiko</option><option>1c</option></select><button id="f-go">Показать</button>`;
+      const load = async () => {
+        const rows = await call('/outbound' + ($('#f-sys').value ? '?system=' + $('#f-sys').value : ''));
+        render(['Когда', 'Система', 'Действие', 'Сделка', 'Режим', 'Результат', 'Запрос', 'Ошибка'], rows.map(o => `<tr>
+          <td class="num">${when(o.created_at)}</td><td>${esc(o.system)}</td><td>${esc(o.action)}</td><td class="num">${o.deal_id ?? ''}</td><td>${esc(o.mode)}</td><td>${tag(o.status)}</td>
+          <td><pre>${esc(JSON.stringify(o.request))}</pre></td><td><pre>${esc(o.error)}</pre></td></tr>`));
+      };
+      $('#f-go').onclick = () => load().catch(e => msg(e.message, true));
+      await load();
+    },
+    async deal(id) {
+      $('#filters').innerHTML = `<input id="f-id" placeholder="ID сделки" inputmode="numeric" value="${esc(id || '')}"><button id="f-go">Открыть</button><button id="f-sync">Перечитать из amo</button>`;
+      const load = async () => {
+        const dealId = $('#f-id').value; if (!dealId) return render(['Сделка'], []);
+        const d = await call('/deals/' + dealId);
+        const s = d.shipment || {};
+        const docNames = { writeoff:'Списание IIKO', sale:'Реализация 1С', return_iiko:'Возврат IIKO', return_1c:'Возврат 1С' };
+        render(['Раздел', 'Данные'], [
+          `<tr><td>Сделка</td><td>${esc(d.deal.name)} · ${esc(d.deal.customer_name)} · ${esc(d.deal.customer_phone)} · ${(d.deal.price_minor / 100).toLocaleString('ru-RU')}</td></tr>`,
+          `<tr><td>Товары</td><td>${d.items.map(i => `${esc(i.name)} × ${i.quantity} по ${(i.price_minor / 100).toLocaleString('ru-RU')}`).join('<br>') || '—'}</td></tr>`,
+          `<tr><td>Отправка</td><td>${s.state ? tag(s.state) : '—'} ${esc(s.method || '')} ${esc(s.country || '')} ${esc(s.delivery_type || '')} · трек ${esc(s.cdek_number || '—')} · ${esc(s.cdek_status || '')}<pre>${esc(s.error)}</pre></td></tr>`,
+          `<tr><td>Документы</td><td>${d.documents.map(x => `${docNames[x.kind] || x.kind}: ${tag(x.status)} ${esc(x.external_id || '')} <span class="muted">${esc(x.detail || '')}</span> ${['skipped', 'failed'].includes(x.status) ? `<button data-rerun="${x.kind}" data-dealid="${dealId}">Создать повторно</button>` : ''}`).join('<br>') || '—'}</td></tr>`,
+          `<tr><td>Операции</td><td>${d.events.map(e => `#${e.id} ${esc(e.event_type)} ${tag(e.status)} <span class="muted">${esc(e.error_message || '')}</span>`).join('<br>') || '—'}</td></tr>`,
+          `<tr><td>Вызовы</td><td>${d.outbound.map(o => `${esc(o.system)} ${esc(o.action)} ${tag(o.status)}`).join('<br>') || '—'}</td></tr>`
+        ]);
+      };
+      $('#f-go').onclick = () => load().catch(e => msg(e.message, true));
+      $('#f-sync').onclick = () => call('/deals/' + $('#f-id').value + '/resync', { method: 'POST' }).then(() => msg('Сделка поставлена в очередь')).catch(e => msg(e.message, true));
+      await load();
+    }
+  };
+
+  async function show(name, arg) {
+    tab = name; msg('');
+    document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === name)));
+    try { await loadStats(); await tabs[name](arg); } catch (e) { msg(e.message, true); }
+  }
+
+  $('#connect').onclick = () => { token = $('#token').value.trim(); show(tab); };
+  $('#token').addEventListener('keydown', e => { if (e.key === 'Enter') $('#connect').click(); });
+  document.querySelector('nav').onclick = e => { if (e.target.dataset.tab) show(e.target.dataset.tab); };
+  $('#table').onclick = async e => {
+    const t = e.target;
+    try {
+      if (t.dataset.deal) { e.preventDefault(); return show('deal', t.dataset.deal); }
+      if (t.dataset.retry) { await call('/events/' + t.dataset.retry + '/retry', { method: 'POST' }); msg('Событие поставлено на повтор'); return show('events'); }
+      if (t.dataset.rerun) { await call(`/deals/${t.dataset.dealid}/documents/${t.dataset.rerun}/rerun`, { method: 'POST' }); msg('Документ поставлен в очередь'); return; }
+      if (t.dataset.save) {
+        const body = {}; t.closest('tr').querySelectorAll('input[data-k]').forEach(i => body[i.dataset.k] = i.dataset.k === 'weight_g' ? (i.value ? Number(i.value) : null) : i.value.trim());
+        await call('/products/' + t.dataset.save, { method: 'PUT', body: JSON.stringify(body) }); msg('Сохранено');
+      }
+    } catch (err) { msg(err.message, true); }
+  };
+})();
+</script>
+</body>
+</html>

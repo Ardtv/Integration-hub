@@ -1,380 +1,93 @@
-# Integration Hub
+# Integration Hub INSTINCT
 
-Центральный сервис для приёма событий от внешних систем (amoCRM) и превращения их в заказы в базе данных.
+Хаб связывает amoCRM, СДЭК, IIKO и 1С. Менеджер работает только в amoCRM: переводит сделку на этап отправки, а заявка в СДЭК, списание со склада и документы в 1С создаются автоматически.
 
-## Содержание
-
-- [Архитектура](#архитектура)
-- [Компоненты](#компоненты)
-- [Поток данных](#поток-данных)
-- [Быстрый старт](#быстрый-старт)
-- [Переменные окружения](#переменные-окружения)
-- [Endpoints](#endpoints)
-- [Скрипты](#скрипты)
-- [Структура проекта](#структура-проекта)
-- [Тестирование](#тестирование)
-- [Разработка](#разработка)
-
-## Архитектура
+## Как это работает
 
 ```
-┌─────────┐  webhook   ┌──────────────┐  POST /api/events  ┌───────┐  worker  ┌────────────┐
-│ amoCRM  │ ─────────▶ │amo-connector │ ─────────────────▶ │  Hub  │ ───────▶ │ PostgreSQL │
-└─────────┘            │   :3002      │   X-Api-Token      │ :3001 │          │instinct_db │
-                       └──────────────┘                    └───────┘          └────────────┘
+amoCRM ──вебхук──▶ amo-коннектор ──▶ Хаб ──▶ СДЭК: заявка (создать / изменить)
+                                      │
+СДЭК ───вебхук──▶ cdek-коннектор ──▶  ├──▶ amoCRM: трек, этап, примечания, задачи
+        (и запасной опрос по cron)    ├──▶ IIKO: списание при отгрузке
+                                      └──▶ 1С: черновики реализации и возврата
 ```
 
-## Компоненты
+1. Сделка переходит на этап «Передать в доставку». Хаб читает её из amo и проверяет поля и товары.
+2. Способ отправки «СДЭК»: создаётся одна заявка с наложенным платежом на сумму сделки. Сделка переходит на «Заказ создан», позже в поле «Трек СДЭК» появляется номер.
+3. Способ «Караганда (B2B)»: заявка не создаётся, в сделке остаётся примечание.
+4. Заказ уехал со склада СДЭК: списание в IIKO и черновик реализации в 1С.
+5. Заказ доставлен: сделка переходит на «Доставлено».
+6. Отказ или возврат: возвратные документы и задача менеджеру.
+7. Ошибка в данных: сделка уходит на «Ошибка оформления» с примечанием, что исправить.
 
-### Hub (`src/`, порт 3001)
+Состояния отправки: `new → validated → cdek_created → shipped → delivered | returned`, а также `error`, `manual` (Караганда) и `cancelled` (отказ до отгрузки).
 
-Центральный сервис: приём событий, очередь, worker, обработка.
+## Тестовый и боевой режим
 
-- **API** (`src/api/events.controller.ts`) — приём событий через `POST /api/events`
-- **Очередь** (`src/repositories/queue.repository.ts`) — таблица `integration_queue`
-- **Worker** (`src/queue/worker.ts`) — фоновый обработчик, поллинг каждые 5 сек
-- **Event Handler** (`src/services/event-handler.service.ts`) — маршрутизация по типу события
-- **Order Service** (`src/services/order.service.ts`) — бизнес-логика заказов
-- **Logger** (`src/config/logger.ts`) — pino, JSON-формат
+По умолчанию хаб работает в тестовом режиме: читает сделки из amo, но в amo, СДЭК, IIKO и 1С **ничего не записывает**. Каждый несостоявшийся вызов виден в панели контроля на вкладке «Исходящие вызовы» вместе с телом запроса.
 
-### amo-connector (`connectors/amo/`, порт 3002)
+Боевой режим включается только двумя строками в `.env` одновременно:
 
-Принимает вебхуки от amoCRM, извлекает данные, отправляет в Hub.
+```
+HUB_MODE=live
+HUB_LIVE_CONFIRM=yes
+```
 
-- `webhook-server.js` — приём вебхуков и отправка
-- `parsers/deal-parser.js` — парсинг сделки
-- `amo-client.js` — клиент для API amoCRM
-- `../shared/hub-client.js` — клиент Hub с retry
+## Состав
 
-### PostgreSQL (`instinct_db`)
+| Часть | Где | Порт |
+|---|---|---|
+| Хаб: очередь, оркестрация, API, панель | `src/` → `dist/` | 3001 |
+| Приёмник вебхуков amoCRM | `connectors/amo/webhook-server.js` | 3002 |
+| Приёмник вебхуков СДЭК | `connectors/cdek/webhook-server.js` | 3003 |
+| Опрос статусов СДЭК (cron) | `connectors/cdek/poll-status.js` | — |
+| Справочник товаров IIKO (cron) | `connectors/iiko/sync-menu.js` | — |
+| Остатки фулфилмента СДЭК (cron) | `connectors/fulfillment/sync-stock.js` | — |
 
-| Таблица | Назначение |
-|---------|-----------|
-| `orders` | Заказы |
-| `users` | Клиенты (уникальны по телефону) |
-| `external_order_items` | Товары из amoCRM |
-| `integration_queue` | Очередь событий |
-| `external_id_mapping` | Связи `amoCRM ID ↔ orders.id` |
-| `integration_logs` | Логи операций |
+Все процессы слушают только `127.0.0.1`. Наружу вебхуки и панель публикует nginx (`deploy/nginx-hub.conf`).
 
-## Поток данных
-
-1. **amoCRM** шлёт вебхук → `POST /webhook/amo` в `amo-connector`
-2. **amo-connector**:
-   - проверяет `X-Webhook-Secret`
-   - `detectEvents()` — определяет тип события
-   - `extractOrder()` — извлекает данные (имя, телефон, email, сумма, товары)
-   - `HubClient.sendWithRetry()` — отправляет в Hub с `X-Api-Token`
-3. **Hub**:
-   - `POST /api/events` — принимает, кладёт в `integration_queue`, отвечает `200 OK`
-4. **Worker** (каждые 5 сек):
-   - `getPending()` — берёт события
-   - `eventHandler.handle()` — обрабатывает
-   - `markProcessed()` / `markFailed()` / `markDead()`
-5. **OrderService**:
-   - `findByExternalId()` — ищет заказ по внешнему ID
-   - `create()` / `update()` — создаёт или обновляет
-   - `external_id_mapping` — сохраняет связь
-   - `external_order_items` — сохраняет товары
-
-## Обрабатываемые события
-
-| amoCRM | Hub eventType | Действие |
-|--------|---------------|----------|
-| `leads.add` | `deal.created` | Создать заказ |
-| `leads.update` | `deal.updated` | Обновить заказ |
-| `leads.status` | `deal.status_updated` | Сменить статус |
-| `leads.delete` | `deal.deleted` | Пометить `cancelled` |
-
-## Маппинг статусов
-
-| `status_id` amoCRM | `orders.status` |
-|---|---|
-| 142 | `new` |
-| 143 | `pending_payment` |
-| 144 | `paid` |
-| 145 | `cancelled` |
-| (другой) | `new` |
-
-## Ключевые принципы
-
-### Асинхронность
-Hub сразу отвечает `200 OK`, обработка в фоне. События не теряются при перезапуске.
-
-### Идемпотентность
-- **`operation_key`** — UNIQUE, повторный вебхук → `duplicate`
-- **`external_id_mapping`** — связь `amoCRM ID ↔ orders.id`, повторный → `update`
-
-### Retry
-- **amo-connector → Hub:** 3 попытки с задержкой 2 и 4 сек
-- **Hub worker:** retry до 3 раз при ошибке
-- После 3 ошибок → мёртвая очередь (`dead`)
-
-### Безопасность
-- **amoCRM → amo-connector:** `X-Webhook-Secret`
-- **amo-connector → Hub:** `X-Api-Token`
-
-### Защита данных при обновлении
-Для `deal.updated` заглушки (`Unknown`, `unknown_<id>`) **не подставляются** — `update()` пропускает `null`, существующие данные не затираются.
+База хаба отдельная от мини-аппы. Таблицы: `integration_queue`, `integration_logs`, `outbound_calls`, `deals`, `deal_items`, `shipments`, `product_map`, `stock_documents`, `external_products`, `ff_offers`.
 
 ## Быстрый старт
 
-### 1. Клонировать
-
 ```bash
-git clone https://github.com/Ardtv/Integration-hub.git
-cd Integration-hub
-```
-
-### 2. Установить зависимости
-
-```bash
-npm install
-```
-
-### 3. Настроить окружение
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-Заполнить: `HUB_API_TOKEN`, `AMO_WEBHOOK_SECRET`, `DB_PASSWORD`.
-
-### 4. Собрать
-
-```bash
+npm ci
+cp .env.example .env      # заполнить
 npm run build
-```
-
-### 5. Создать таблицы в БД
-
-```bash
-sudo -u postgres psql -d instinct_db -f migrations/001_integration_tables.sql
-```
-
-### 6. Запустить
-
-```bash
+npm run migrate
 pm2 start ecosystem.config.js
-pm2 save
 ```
 
-### 7. Проверить
+Полная установка на сервер описана в [docs/DEPLOY.md](docs/DEPLOY.md).
 
-```bash
-curl http://localhost:3001/health
-curl http://localhost:3002/health
-```
+## Команды
 
-## Переменные окружения
+| Команда | Что делает |
+|---|---|
+| `npm run build` | Сборка TypeScript |
+| `npm run migrate` | Применить миграции |
+| `npm test` | Тесты на настоящем PostgreSQL (скачивается сам, внешние системы подменены) |
+| `npm run amo:discover` | Показать воронки, этапы и поля amo с их ID |
+| `npm run amo:setup -- --pipeline <id>` | Показать, какие поля и этапы будут созданы; с `--apply` создать |
+| `npm run products:suggest` | Предложить сопоставление товаров по названиям; с `-- --apply` записать |
+| `node scripts/cdek-subscribe.js <url>` | Подписаться на вебхуки СДЭК |
 
-| Переменная | Где | Назначение | Пример |
-|------------|-----|-----------|--------|
-| `HUB_PORT` | Hub | Порт | `3001` |
-| `HUB_API_TOKEN` | Hub + amo-connector | Токен авторизации | hex-32 |
-| `AMO_WEBHOOK_PORT` | amo-connector | Порт | `3002` |
-| `HUB_URL` | amo-connector | URL Hub | `http://localhost:3001` |
-| `AMO_WEBHOOK_SECRET` | amo-connector | Секрет вебхука | hex-32 |
-| `DB_HOST` | Hub | Хост БД | `localhost` |
-| `DB_PORT` | Hub | Порт БД | `5432` |
-| `DB_NAME` | Hub | Имя БД | `instinct_db` |
-| `DB_USER` | Hub | Пользователь БД | `instinct_user` |
-| `DB_PASSWORD` | Hub | Пароль БД | — |
-| `LOG_LEVEL` | Hub | Уровень логов | `info` |
-| `NODE_ENV` | Hub | Окружение | `production` |
+## Панель контроля
 
-## Endpoints
+Страница `/panel` (через nginx `/hub/panel`), вход по `HUB_API_TOKEN`. Показывает операции с фильтрами и ручным повтором, отправки, справочник товаров с редактированием, исходящие вызовы и карточку сделки со всеми документами.
 
-### Hub (:3001)
+## Надёжность
 
-| URL | Метод | Auth | Назначение |
-|-----|-------|------|-----------|
-| `/health` | GET | — | Healthcheck |
-| `/api/events` | POST | `X-Api-Token` | Приём событий |
-| `/api/stats` | GET | `X-Api-Token` | Статистика |
-| `/api/events` | GET | `X-Api-Token` | Pending события |
-| `/api/dead` | GET | `X-Api-Token` | Мёртвая очередь |
+- **Без дублей.** У каждого события детерминированный ключ: повторная доставка вебхука отбрасывается. Одна сделка — одна отправка. У документов ключи `deal:{id}:writeoff`, `:sale`, `:return:iiko`, `:return:1c`.
+- **Повторы.** Сбой внешней системы повторяется через 1, 2, 4, 8 минут. После пятой попытки событие уходит в необработанные, менеджер получает задачу в сделке, а в Telegram приходит алерт.
+- **Ошибка в данных** повторами не лечится, поэтому сразу попадает в необработанные.
+- **Зависшие события** после падения процесса возвращаются в очередь.
 
-### amo-connector (:3002)
+## Документация
 
-| URL | Метод | Auth | Назначение |
-|-----|-------|------|-----------|
-| `/health` | GET | — | Healthcheck |
-| `/webhook/amo` | POST | `X-Webhook-Secret` | Приём вебхуков |
-
-## Скрипты
-
-| Скрипт | Время | Что делает |
-|--------|-------|-----------|
-| `scripts/healthcheck.sh` | 10 сек | Состояние всех сервисов |
-| `scripts/demo.sh` | 15 сек | Демо: создание + оплата |
-| `scripts/e2e-full.sh` | 40 сек | E2E: 5 сценариев |
-
-### healthcheck.sh
-
-```bash
-~/integration-hub/scripts/healthcheck.sh
-```
-
-Проверяет Hub, amo-connector, БД, очередь, последние ошибки и заказы.
-
-### demo.sh
-
-```bash
-~/integration-hub/scripts/demo.sh
-```
-
-Создаёт сделку → заказ в БД → меняет статус на `paid`.
-
-### e2e-full.sh
-
-```bash
-~/integration-hub/scripts/e2e-full.sh
-```
-
-5 сценариев:
-1. Создание заказа
-2. Обновление цены
-3. Смена статуса
-4. Без телефона (fallback)
-5. Retry при недоступности Hub
-
-## Структура проекта
-
-```
-integration-hub/
-├── src/                          # Hub (Node.js + TypeScript)
-│   ├── api/
-│   │   └── events.controller.ts  # Приём событий
-│   ├── config/
-│   │   ├── database.ts           # Подключение к PostgreSQL
-│   │   └── logger.ts             # Pino logger
-│   ├── queue/
-│   │   └── worker.ts             # Фоновый обработчик
-│   ├── repositories/
-│   │   ├── order.repository.ts
-│   │   ├── order-item.repository.ts
-│   │   ├── queue.repository.ts
-│   │   └── mapping.repository.ts
-│   ├── services/
-│   │   ├── order.service.ts
-│   │   └── event-handler.service.ts
-│   └── index.ts                  # Точка входа
-├── connectors/
-│   ├── amo/                      # amo-connector (Node.js)
-│   │   ├── webhook-server.js
-│   │   ├── amo-client.js
-│   │   ├── parsers/
-│   │   │   └── deal-parser.js
-│   │   └── README.md
-│   └── shared/
-│       └── hub-client.js         # Клиент Hub с retry
-├── scripts/
-│   ├── healthcheck.sh
-│   ├── demo.sh
-│   └── e2e-full.sh
-├── docs/
-│   ├── ARCHITECTURE.md           # Архитектура
-│   └── E2E.md                    # E2E инструкция
-├── migrations/
-│   └── 001_integration_tables.sql    # Схема БД
-├── ecosystem.config.js           # PM2 конфиг
-├── package.json
-├── tsconfig.json
-├── .env.example
-├── .gitignore
-└── README.md
-```
-
-## Тестирование
-
-### Healthcheck
-
-```bash
-~/integration-hub/scripts/healthcheck.sh
-```
-
-Ожидаемый вывод:
-```
-✅ Hub OK
-✅ amo-connector OK
-✅ БД OK
-```
-
-### Демо
-
-```bash
-~/integration-hub/scripts/demo.sh
-```
-
-Ожидаемый вывод:
-```
-▶ Шаг 3: Заказ уже в БД
- id | customer_name | customer_phone | total_amount_minor | status
-----+---------------+----------------+--------------------+--------
- 45 | Демо Клиент   | +79991234567   |             999900 | new
-
-▶ Шаг 5: Статус заказа обновился
-----+---------------+----------------+--------------------+--------
- 45 | Демо Клиент   | +79991234567   |             999900 | paid
-
-✅ ДЕМО ЗАВЕРШЕНО
-```
-
-### E2E
-
-```bash
-~/integration-hub/scripts/e2e-full.sh
-```
-
-Проверяет 5 сценариев, выводит итоговый отчёт.
-
-## Разработка
-
-### Сборка
-
-```bash
-npm run build
-```
-
-### Запуск dev (без сборки)
-
-```bash
-npm run dev
-```
-
-### Перезапуск после правок
-
-```bash
-rm -rf dist && npm run build && pm2 restart hub
-```
-
-### Логи
-
-```bash
-pm2 logs hub --lines 50
-pm2 logs amo-connector --lines 50
-```
-
-### Отладка очереди
-
-```bash
-sudo -u postgres psql -d instinct_db -c "
-SELECT id, event_type, status, error_message, retry_count
-FROM integration_queue
-ORDER BY id DESC LIMIT 10;"
-```
-
-### Сбросить упавшее событие
-
-```bash
-sudo -u postgres psql -d instinct_db -c "
-UPDATE integration_queue
-SET status = 'pending', retry_count = 0, error_message = NULL
-WHERE id = <event_id>;"
-```
-
-## Лицензия
-
-Proprietary. Все права защищены.
+- [docs/DEPLOY.md](docs/DEPLOY.md) — установка, обновление, включение боевого режима
+- [docs/RECOVERY.md](docs/RECOVERY.md) — резервные копии и восстановление
+- [docs/MANAGER-GUIDE.md](docs/MANAGER-GUIDE.md) — памятка менеджеру amoCRM
+- [docs/ADD-CONNECTOR.md](docs/ADD-CONNECTOR.md) — как добавить коннектор
+- [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) — допущения и вопросы к заказчику
+- [docs/DOD.md](docs/DOD.md) — состояние по Definition of Done Этапа 2.1

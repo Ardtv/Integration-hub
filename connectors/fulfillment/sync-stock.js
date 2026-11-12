@@ -2,6 +2,7 @@ require('dotenv').config({ path: __dirname + '/../../.env', quiet: true });
 
 const HubClient = require('../shared/hub-client');
 const OrderadminClient = require('./orderadmin-client');
+const { EVENTS } = require('../shared/events');
 
 const dryRun = process.argv.includes('--dry-run');
 const CURRENCY = process.env.FF_CURRENCY || 'RUB';
@@ -44,7 +45,7 @@ async function main() {
         }
         try {
             const r = await HubClient.sendWithRetry({
-                eventType: 'fulfillment.stock.updated',
+                eventType: EVENTS.FF_STOCK_UPDATED,
                 source: 'fulfillment',
                 payload: ev,
                 operationKey: `ff_stock_${o.id}_${ev.product.stock}_${ev.product.price_minor}_${o.updated || 'na'}`

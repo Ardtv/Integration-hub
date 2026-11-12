@@ -1,21 +1,22 @@
 {
   "name": "integration-hub",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev:amo": "nodemon connectors/amo/webhook-server.js",
     "dev": "nodemon --exec ts-node src/index.ts",
-    "check-iiko": "ts-node src/scripts/check-iiko.ts"
+    "migrate": "node scripts/migrate.js",
+    "test": "tsc && LOG_LEVEL=silent node --test --test-concurrency=1 --test-reporter=spec tests/*.test.js",
+    "amo:discover": "node scripts/amo-discover.js",
+    "amo:setup": "node scripts/amo-setup.js",
+    "products:suggest": "node scripts/product-map-suggest.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.20.0",
-    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
@@ -24,13 +25,16 @@
     "pino-pretty": "^13.1.3"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.43",
     "@types/pg": "^8.23.1",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "embedded-postgres": "^18.6.0-beta.19"
   },
-  "description": ""
+  "description": "Integration Hub INSTINCT: amoCRM → СДЭК → IIKO → 1С",
+  "engines": {
+    "node": ">=20"
+  }
 }
