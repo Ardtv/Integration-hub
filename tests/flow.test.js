@@ -375,3 +375,54 @@ test('остатки фулфилмента сохраняются в справ
     assert.equal((await hub.store.queueStats()).processed, 1);
     await hub.close();
 });
+
+// Настройка как в воронке «Доставка»: поля «Способ отправки» нет, способ задаёт этап,
+// склад «Караганда» и самовывоз оформляются вручную, город берётся из адреса.
+const DOSTAVKA = { AMO_FIELD_METHOD: '', AMO_FIELD_COUNTRY: '', AMO_FIELD_DELIVERY_TYPE: '', AMO_FIELD_CITY: '',
+    AMO_DEFAULT_METHOD: 'cdek', AMO_DEFAULT_COUNTRY: 'KZ', AMO_DEFAULT_DELIVERY_TYPE: 'door',
+    AMO_FIELD_WAREHOUSE: '208', AMO_FIELD_DELIVERY_MODE: '209' };
+
+test('воронка «Доставка»: склад Астана, адрес одной строкой → заявка в СДЭК до двери', async () => {
+    const hub = await makeHub(DOSTAVKA);
+    hub.gw.deals.set(41, makeDeal(41, { fields: { 208: 'Астана', 209: 'Доставка', [IDS.field.address]: 'Город Ерейментау улица Валиханова дом 45' } }));
+    await hub.dealChanged(41);
+    const sh = await hub.store.getShipment(41);
+    assert.equal(sh.state, 'cdek_created', sh.error);
+    assert.equal(sh.method, 'cdek');
+    assert.equal(sh.country, 'KZ');
+    assert.equal(sh.delivery_type, 'door');
+    assert.equal(sh.city, 'Ерейментау');
+    await hub.close();
+});
+
+test('воронка «Доставка»: склад Караганда и самовывоз → вручную, без СДЭК', async () => {
+    const hub = await makeHub(DOSTAVKA);
+    hub.gw.deals.set(42, makeDeal(42, { fields: { 208: 'Караганда', 209: 'Доставка', [IDS.field.address]: 'г. Караганда, ул. Ерубаева 1' } }));
+    hub.gw.deals.set(43, makeDeal(43, { fields: { 208: 'Алматы', 209: 'Самовывоз' } }));
+    await hub.dealChanged(42);
+    await hub.dealChanged(43);
+    assert.equal((await hub.store.getShipment(42)).state, 'manual');
+    assert.equal((await hub.store.getShipment(43)).state, 'manual');
+    assert.equal(hub.count('cdek', 'createOrder'), 0);
+    await hub.close();
+});
+
+test('воронка «Доставка»: без товаров во вкладке «Товары» и без города → ошибка оформления', async () => {
+    const hub = await makeHub(DOSTAVKA);
+    hub.gw.deals.set(44, makeDeal(44, { items: [], fields: { 208: 'Астана', [IDS.field.address]: 'улица Валиханова 45' } }));
+    await hub.dealChanged(44);
+    const sh = await hub.store.getShipment(44);
+    assert.equal(sh.state, 'error');
+    assert.match(sh.error, /нет товаров/);
+    assert.match(sh.error, /Город/);
+    await hub.close();
+});
+
+test('IIKO выключен: несопоставленный с IIKO товар не мешает заявке в СДЭК', async () => {
+    const hub = await makeHub({ IIKO_WRITEOFF_ENABLED: 'false', API_1C_ENABLED: 'false' });
+    hub.gw.deals.set(45, makeDeal(45, { items: [{ amo_product_id: 999, name: 'Новый товар', sku: null, quantity: 1, price_minor: 1500000 }] }));
+    await hub.dealChanged(45);
+    const sh = await hub.store.getShipment(45);
+    assert.equal(sh.state, 'cdek_created', sh.error);
+    await hub.close();
+});

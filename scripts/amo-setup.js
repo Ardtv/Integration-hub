@@ -6,20 +6,22 @@
 require('dotenv').config({ path: __dirname + '/../.env', quiet: true });
 const AmoClient = require('../connectors/amo/amo-client');
 
+// Поле или этап, ID которого уже вписан в .env, не создаётся: используется существующее
+// (например «Адрес доставки», «Номер отправления СДЭК», «Склад» в воронке «Доставка»).
+// create:false — только печатается подсказка, если ID не задан: такие этапы выбираются из уже существующих.
 const FIELDS = [
-    { env: 'AMO_FIELD_METHOD', name: 'Способ отправки', type: 'select', enums: ['СДЭК', 'Караганда (B2B)'] },
     { env: 'AMO_FIELD_COUNTRY', name: 'Страна', type: 'select', enums: ['Казахстан', 'Россия'] },
     { env: 'AMO_FIELD_DELIVERY_TYPE', name: 'Тип доставки', type: 'select', enums: ['До двери', 'ПВЗ'] },
     { env: 'AMO_FIELD_CITY', name: 'Город', type: 'text' },
-    { env: 'AMO_FIELD_ADDRESS', name: 'Адрес', type: 'text' },
+    { env: 'AMO_FIELD_ADDRESS', name: 'Адрес доставки', type: 'text' },
     { env: 'AMO_FIELD_PVZ', name: 'Код ПВЗ', type: 'text' },
-    { env: 'AMO_FIELD_TRACK', name: 'Трек СДЭК', type: 'text' }
+    { env: 'AMO_FIELD_TRACK', name: 'Номер отправления СДЭК', type: 'text' }
 ];
 const STAGES = [
-    { env: 'AMO_STAGE_SEND', name: 'Передать в доставку', color: '#fffeb2' },
-    { env: 'AMO_STAGE_CREATED', name: 'Заказ создан', color: '#98cbff' },
-    { env: 'AMO_STAGE_DELIVERED', name: 'Доставлено', color: '#87f2c0' },
-    { env: 'AMO_STAGE_ERROR', name: 'Ошибка оформления', color: '#ff8f92' }
+    { env: 'AMO_STAGE_SEND', name: 'СДЕК ФФ', create: false },
+    { env: 'AMO_STAGE_CREATED', name: 'Заказ создан', create: false },
+    { env: 'AMO_STAGE_DELIVERED', name: 'Успешно реализовано', create: false },
+    { env: 'AMO_STAGE_ERROR', name: 'Ошибка оформления', color: '#ff8f92', create: true }
 ];
 
 const arg = name => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
@@ -41,16 +43,21 @@ const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLow
     const existingFields = await amo.listLeadFields();
     const toCreateFields = [];
     for (const f of FIELDS) {
-        const found = existingFields.find(x => same(x.name, f.name));
+        const preset = Number(process.env[f.env]);
+        const found = preset ? existingFields.find(x => x.id === preset) : existingFields.find(x => same(x.name, f.name));
+        if (preset && !found) { console.error(`${f.env}=${preset}: такого поля в amo нет`); process.exit(1); }
         if (found) env.push(`${f.env}=${found.id}`);
         else toCreateFields.push(f);
     }
     const existingStages = pipeline._embedded?.statuses || [];
     const toCreateStages = [];
     for (const s of STAGES) {
-        const found = existingStages.find(x => same(x.name, s.name));
+        const preset = Number(process.env[s.env]);
+        const found = preset ? existingStages.find(x => x.id === preset) : existingStages.find(x => same(x.name, s.name));
+        if (preset && !found) { console.error(`${s.env}=${preset}: такого этапа в воронке нет`); process.exit(1); }
         if (found) env.push(`${s.env}=${found.id}`);
-        else toCreateStages.push(s);
+        else if (s.create) toCreateStages.push(s);
+        else console.log(`Этап для ${s.env} («${s.name}») не найден: впишите ID нужного существующего этапа в .env или оставьте пустым`);
     }
 
     console.log(`Воронка: «${pipeline.name}» (${pipeline.id})`);

@@ -78,13 +78,13 @@ export class Orchestrator {
     /** Проверка сделки перед отправкой. Возвращает список понятных менеджеру ошибок. */
     validate(deal: AmoDeal, intent: ShipmentIntent, map: Map<number, ProductMapRow>): string[] {
         const e: string[] = [];
-        if (!intent.method) e.push('Не выбран «Способ отправки» (СДЭК или Караганда)');
+        if (!intent.method) e.push('Не определён способ отправки: заполните «Склад» или «Способ отправки»');
         if (intent.method !== 'cdek') return e;
 
         if (!intent.country) e.push('Не выбрана «Страна» (Казахстан или Россия)');
         if (!intent.deliveryType) e.push('Не выбран «Тип доставки» (до двери или ПВЗ)');
         if (intent.deliveryType === 'door') {
-            if (!intent.city) e.push('Не заполнен «Город»');
+            if (!intent.city) e.push('Не заполнен «Город» (отдельным полем или словом «город …» в адресе)');
             if (!intent.address) e.push('Не заполнен «Адрес» для доставки до двери');
         }
         if (intent.deliveryType === 'pvz' && !intent.pvzCode) e.push('Не заполнен «Код ПВЗ»');
@@ -95,7 +95,7 @@ export class Orchestrator {
             e.push('В сделке нет товаров');
         } else {
             for (const it of deal.items) {
-                if (!map.get(it.amo_product_id)?.iiko_product_id) {
+                if (this.cfg.iiko.writeoffEnabled && !map.get(it.amo_product_id)?.iiko_product_id) {
                     e.push(`Товар «${it.name || it.amo_product_id}» не сопоставлен с IIKO`);
                 }
                 if (this.cfg.onec.enabled && !map.get(it.amo_product_id)?.onec_ref) {
@@ -131,7 +131,7 @@ export class Orchestrator {
         if (intent.method === 'karaganda') {
             await this.store.saveShipment(deal.id, { ...this.intentColumns(intent), state: 'manual', error: null });
             if (existing?.state !== 'manual') {
-                await this.gw.amo.addNote(deal.id, 'Способ отправки «Караганда (B2B)»: заявка в СДЭК не создаётся, отправка оформляется вручную.');
+                await this.gw.amo.addNote(deal.id, 'Склад «Караганда» или самовывоз: заявка в СДЭК не создаётся, отправка оформляется вручную.');
             }
             return 'Караганда: вручную';
         }

@@ -5,7 +5,7 @@ const http = require('node:http');
 const { EVENTS: TS_EVENTS, validateEvent, opKey } = require('../dist/contracts/events');
 const { EVENTS: JS_EVENTS } = require('../connectors/shared/events');
 const { loadConfig, startupProblems } = require('../dist/config/config');
-const { parseMethod, parseCountry, parseDeliveryType, normalizePhone } = require('../dist/services/intent');
+const { parseMethod, parseCountry, parseDeliveryType, normalizePhone, cityFromAddress } = require('../dist/services/intent');
 const amoHook = require('../connectors/amo/webhook-server');
 const cdekHook = require('../connectors/cdek/webhook-server');
 
@@ -81,4 +81,12 @@ test('разбор значений полей amo и телефона', () => {
     assert.equal(normalizePhone('8 (701) 000-00-01'), '+77010000001');
     assert.equal(normalizePhone('7010000001'), '+77010000001');
     assert.equal(normalizePhone('12345'), null);
+});
+
+test('город берётся из адреса одной строкой', () => {
+    assert.equal(cityFromAddress('Город Ерейментау улица Валиханова дом 45 первый подъезд'), 'Ерейментау');
+    assert.equal(cityFromAddress('г. Астана, ул. Кенесары 40'), 'Астана');
+    assert.equal(cityFromAddress('г.Усть-Каменогорск, пр. Абая 1'), 'Усть-Каменогорск');
+    assert.equal(cityFromAddress('ул. Абая, 1'), null);
+    assert.equal(cityFromAddress(null), null);
 });

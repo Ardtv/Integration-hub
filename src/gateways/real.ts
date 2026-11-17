@@ -78,7 +78,7 @@ export class RealAmoGateway implements AmoGateway {
             if (catalogId) {
                 const full = await this.api().getCatalogElement(catalogId, el.id);
                 name = full?.name || null;
-                sku = firstValue(full, 'SKU');
+                sku = firstValue(full, 'SKU') || firstValue(full, 'EXTERNAL_ID');
                 price = Number(firstValue(full, 'PRICE')) || 0;
             }
             items.push({ amo_product_id: Number(el.id), name, sku, quantity, price_minor: Math.round(price * 100) });

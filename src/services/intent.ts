@@ -38,15 +38,32 @@ export function parseDeliveryType(v: string | null | undefined): ShipmentIntent[
     return null;
 }
 
+/** Город из адреса одной строкой: «Город Ерейментау улица …», «г. Астана, ул. …». */
+export function cityFromAddress(address: string | null | undefined): string | null {
+    const m = /(?:^|[\s,;])(?:г\.|гор\.|город)\s*([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]*)/i.exec(address || '');
+    return m ? m[1].trim() : null;
+}
+
 export function readIntent(deal: AmoDeal, cfg: HubConfig): ShipmentIntent {
     const f = cfg.amo.fields;
+    const d = cfg.amo.defaults;
     const get = (id: number | null) => (id ? (deal.fields[String(id)] || '').trim() || null : null);
+
+    // Способ отправки: поле (если настроено) → склад из списка «ручных» → самовывоз → значение по умолчанию.
+    // В воронке «Доставка» способ задаёт сам этап («СДЕК ФФ»), поэтому поля обычно нет.
+    let method = parseMethod(get(f.method));
+    const warehouse = norm(get(f.warehouse));
+    if (warehouse && cfg.amo.manualWarehouses.some(w => warehouse.includes(norm(w)))) method = 'karaganda';
+    if (!method && norm(get(f.deliveryMode)).includes('самовывоз')) method = 'karaganda';
+    if (!method) method = d.method;
+
+    const address = get(f.address);
     const base = {
-        method: parseMethod(get(f.method)),
-        country: parseCountry(get(f.country)),
-        deliveryType: parseDeliveryType(get(f.deliveryType)),
-        city: get(f.city),
-        address: get(f.address),
+        method,
+        country: parseCountry(get(f.country)) || d.country,
+        deliveryType: parseDeliveryType(get(f.deliveryType)) || d.deliveryType,
+        city: get(f.city) || cityFromAddress(address),
+        address,
         pvzCode: get(f.pvz)
     };
     const hash = crypto.createHash('sha256')

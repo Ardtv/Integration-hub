@@ -33,7 +33,9 @@ export interface HubConfig {
         token: string | null;
         pipelineIds: number[];
         stages: { send: number | null; created: number | null; delivered: number | null; error: number | null; returned: number | null };
-        fields: { method: number | null; country: number | null; deliveryType: number | null; city: number | null; address: number | null; pvz: number | null; track: number | null };
+        fields: { method: number | null; country: number | null; deliveryType: number | null; city: number | null; address: number | null; pvz: number | null; track: number | null; warehouse: number | null; deliveryMode: number | null };
+        manualWarehouses: string[];
+        defaults: { method: 'cdek' | 'karaganda' | null; country: 'KZ' | 'RU' | null; deliveryType: 'door' | 'pvz' | null };
         strictSum: boolean;
     };
     cdek: {
@@ -98,7 +100,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HubConfig {
                 city: num(env.AMO_FIELD_CITY),
                 address: num(env.AMO_FIELD_ADDRESS),
                 pvz: num(env.AMO_FIELD_PVZ),
-                track: num(env.AMO_FIELD_TRACK)
+                track: num(env.AMO_FIELD_TRACK),
+                warehouse: num(env.AMO_FIELD_WAREHOUSE),
+                deliveryMode: num(env.AMO_FIELD_DELIVERY_MODE)
+            },
+            manualWarehouses: list(env.AMO_MANUAL_WAREHOUSES ?? 'Караганда'),
+            defaults: {
+                method: (['cdek', 'karaganda'].includes(String(env.AMO_DEFAULT_METHOD)) ? env.AMO_DEFAULT_METHOD : null) as any,
+                country: (['KZ', 'RU'].includes(String(env.AMO_DEFAULT_COUNTRY)) ? env.AMO_DEFAULT_COUNTRY : null) as any,
+                deliveryType: (['door', 'pvz'].includes(String(env.AMO_DEFAULT_DELIVERY_TYPE)) ? env.AMO_DEFAULT_DELIVERY_TYPE : null) as any
             },
             strictSum: env.AMO_STRICT_SUM === undefined ? true : flag(env.AMO_STRICT_SUM)
         },
@@ -150,7 +160,7 @@ export function startupProblems(cfg: HubConfig): string[] {
     if (cfg.mode === 'live') {
         if (!cfg.amo.domain || !cfg.amo.token) p.push('AMO_API_DOMAIN и AMO_API_TOKEN обязательны в боевом режиме');
         if (!cfg.amo.stages.send) p.push('AMO_STAGE_SEND не задан: неизвестно, какой этап запускает отправку');
-        if (!cfg.amo.fields.method) p.push('AMO_FIELD_METHOD не задан');
+        if (!cfg.amo.fields.method && !cfg.amo.defaults.method) p.push('Не задан ни AMO_FIELD_METHOD, ни AMO_DEFAULT_METHOD: неизвестен способ отправки');
         if (!cfg.cdek.tariffDoor || !cfg.cdek.tariffPvz) p.push('CDEK_TARIFF_DOOR и CDEK_TARIFF_PVZ обязательны в боевом режиме');
         if (!cfg.cdek.shipmentPoint && Object.keys(cfg.cdek.fromLocation).length === 0) {
             p.push('Нужен CDEK_SHIPMENT_POINT или CDEK_FROM_LOCATION_JSON: откуда отправляется заказ');
